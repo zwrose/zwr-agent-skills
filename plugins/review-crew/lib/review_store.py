@@ -173,3 +173,26 @@ def resolve_global(cwd, root):
     if healed and os.path.isdir(entry_dir):
         _write_keys_json(entry_dir, ident)
     return {"entry_id": entry_id, "dir": entry_dir, "healed": healed}
+
+
+def create(cwd, kind, location, root):
+    """Return the path to write `kind` at `location`. Non-destructive: never
+    truncates an existing profile/decisions file or overwrites an existing
+    keys.json. For 'global', mints/reuses the entry and registers both pointers."""
+    if location == "in-repo":
+        d = os.path.join(cwd, ".claude")
+        os.makedirs(d, exist_ok=True)
+        return os.path.join(d, FILENAMES[kind])
+    if location != "global":
+        raise ValueError(f"unknown location: {location}")
+
+    ident = derive_identifiers(cwd)
+    entry_id = ident["gitdir_hash"]
+    entry_dir = os.path.join(root, "entries", entry_id)
+    os.makedirs(entry_dir, exist_ok=True)
+    if not os.path.exists(os.path.join(entry_dir, "keys.json")):
+        _write_keys_json(entry_dir, ident)
+    write_pointer(root, ident["gitdir_hash"], entry_id)
+    if ident["remote_hash"]:
+        write_pointer(root, ident["remote_hash"], entry_id)
+    return os.path.join(entry_dir, FILENAMES[kind])

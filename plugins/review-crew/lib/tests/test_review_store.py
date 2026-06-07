@@ -162,3 +162,38 @@ def test_disagreement_prefers_remote(tmp_path):
     assert g["entry_id"] == "entry-REMOTE"
     assert g["healed"] is True
     assert rs.read_pointer(root, ident["gitdir_hash"]) == "entry-REMOTE"  # re-pointed
+
+
+def test_create_global_registers_both_pointers_and_keys(tmp_path):
+    repo = _init_repo(tmp_path / "r", remote="git@github.com:o/p.git")
+    root = str(tmp_path / "store")
+    path = rs.create(repo, "profile", "global", root)
+    ident = rs.derive_identifiers(repo)
+    eid = ident["gitdir_hash"]
+    assert path == os.path.join(root, "entries", eid, "review-profile.md")
+    assert rs.read_pointer(root, ident["gitdir_hash"]) == eid
+    assert rs.read_pointer(root, ident["remote_hash"]) == eid
+    keys = json.load(open(os.path.join(root, "entries", eid, "keys.json")))
+    assert keys["remote"] == "github.com/o/p"
+    assert keys["gitdir_hash"] == eid
+
+
+def test_create_global_is_non_clobbering(tmp_path):
+    repo = _init_repo(tmp_path / "r", remote="git@github.com:o/p.git")
+    root = str(tmp_path / "store")
+    path = rs.create(repo, "profile", "global", root)
+    with open(path, "w") as fh:
+        fh.write("MY PROFILE")
+    # second create must reuse the entry and NOT overwrite the profile
+    again = rs.create(repo, "profile", "global", root)
+    assert again == path
+    assert open(path).read() == "MY PROFILE"
+
+
+def test_create_in_repo_returns_dot_claude_and_mints_no_global(tmp_path):
+    repo = _init_repo(tmp_path / "r")
+    root = str(tmp_path / "store")
+    path = rs.create(repo, "profile", "in-repo", root)
+    assert path == os.path.join(repo, ".claude", "review-profile.md")
+    assert not os.path.exists(os.path.join(root, "entries"))
+    assert not os.path.exists(os.path.join(root, "keys"))
