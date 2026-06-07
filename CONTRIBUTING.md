@@ -4,10 +4,10 @@ Thanks for your interest in **zwr-agent-skills**. This is a personal marketplace
 maintain, but it's public and contributions are genuinely welcome — bug reports,
 fixes, docs, eval fixtures, and new ideas all help.
 
-How it works: **anyone can fork the repo and open a pull request; I review and
-merge.** Only the maintainer has merge rights, and `main` is protected so every
-change lands through a PR with passing CI. That keeps the published plugins stable
-for everyone installing them.
+How it works: fork the repo and open a pull request whenever you'd like. As the
+maintainer I'll review it, talk through any feedback, and merge it once it's ready.
+`main` is protected so every change lands through a PR with passing CI — that's what
+keeps the published plugins stable for everyone installing them.
 
 ## Ways to contribute
 
@@ -62,7 +62,8 @@ Then:
 2. Open a PR against `main`. CI runs automatically.
    - First-time contributors: a maintainer approves the workflow run before CI
      executes (a GitHub default for public repos).
-3. I review, CI must be green, and I merge (squash; the branch is deleted on merge).
+3. I'll review and work through any feedback with you. Once CI is green and we're
+   happy with it, I'll merge it (squash; the branch is deleted on merge).
 
 ## Plugin structure rules
 

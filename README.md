@@ -66,8 +66,8 @@ Then, in any project:
 
 ## Contributing
 
-Issues and pull requests are welcome. Anyone can fork and open a PR; I review and
-merge. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues and pull requests are welcome. Fork the repo, open a PR, and I'll review it
+and help get it merged. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
