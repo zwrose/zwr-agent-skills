@@ -49,3 +49,42 @@ def normalize_remote(url):
 def short_hash(s):
     """First 16 hex chars of sha256(s)."""
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]
+
+
+def _run_git(cwd, *args):
+    """Run git with an argv array + timeout. Return stdout (stripped) or None."""
+    try:
+        r = subprocess.run(["git", "-C", cwd, *args],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    return r.stdout.strip()
+
+
+def get_remote(cwd):
+    """Normalized origin URL, or None."""
+    return normalize_remote(_run_git(cwd, "remote", "get-url", "origin"))
+
+
+def get_gitdir(cwd):
+    """realpath of the git-common-dir (shared by all worktrees). Falls back to
+    `--absolute-git-dir` for git < 2.31, then to realpath(cwd) for non-git dirs."""
+    out = _run_git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if out is None:
+        out = _run_git(cwd, "rev-parse", "--absolute-git-dir")
+    if out is None:
+        out = cwd
+    return os.path.realpath(out)
+
+
+def derive_identifiers(cwd):
+    remote = get_remote(cwd)
+    gitdir = get_gitdir(cwd)
+    return {
+        "remote": remote,
+        "gitdir": gitdir,
+        "remote_hash": short_hash(remote) if remote else None,
+        "gitdir_hash": short_hash(gitdir),
+    }
