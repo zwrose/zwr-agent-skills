@@ -291,3 +291,44 @@ def test_cli_create_then_resolve_global(tmp_path):
 def test_cli_unknown_command_exits_nonzero(tmp_path):
     out = _run_cli(["frobnicate"], tmp_path, tmp_path / "home")
     assert out.returncode != 0
+
+
+def test_concurrency_disjoint_pointers_do_not_clobber(tmp_path):
+    root = str(tmp_path / "store")
+    rs.write_pointer(root, "hashA", "entryA")
+    rs.write_pointer(root, "hashB", "entryB")  # different repo, disjoint file
+    assert rs.read_pointer(root, "hashA") == "entryA"
+    assert rs.read_pointer(root, "hashB") == "entryB"
+
+
+def test_half_registered_entry_self_heals(tmp_path):
+    repo = _init_repo(tmp_path / "r", remote="git@github.com:o/p.git")
+    root = str(tmp_path / "store")
+    ident = rs.derive_identifiers(repo)
+    eid = ident["gitdir_hash"]
+    os.makedirs(os.path.join(root, "entries", eid), exist_ok=True)
+    rs._write_keys_json(os.path.join(root, "entries", eid), ident)
+    rs.write_pointer(root, ident["gitdir_hash"], eid)  # only one pointer written
+    g = rs.resolve_global(repo, root)                  # next resolve heals
+    assert rs.read_pointer(root, ident["remote_hash"]) == eid
+
+
+def test_gitdir_uses_pre_231_fallback(tmp_path, monkeypatch):
+    repo = _init_repo(tmp_path / "r")
+    calls = {"n": 0}
+    real = rs._run_git
+
+    def fake(cwd, *a):
+        if a[:2] == ("rev-parse",) + ("--path-format=absolute",):
+            return None  # simulate git < 2.31 not supporting the flag
+        if a == ("rev-parse", "--path-format=absolute", "--git-common-dir"):
+            return None
+        if a == ("rev-parse", "--absolute-git-dir"):
+            calls["n"] += 1
+            return real(cwd, *a)
+        return real(cwd, *a)
+
+    monkeypatch.setattr(rs, "_run_git", fake)
+    gd = rs.get_gitdir(repo)
+    assert calls["n"] == 1            # fell back
+    assert os.path.isabs(gd)
