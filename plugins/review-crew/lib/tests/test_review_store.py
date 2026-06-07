@@ -78,3 +78,20 @@ def test_worktrees_collapse_to_one_gitdir(tmp_path):
     wt = str(tmp_path / "wt")
     _git(repo, "worktree", "add", "-q", wt)
     assert rs.get_gitdir(repo) == rs.get_gitdir(wt)
+
+
+def test_store_root_is_realpathed(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    root = rs.store_root()
+    assert root == os.path.realpath(root)
+    assert root.endswith(os.path.join(".claude", "review-crew"))
+
+
+def test_pointer_round_trip(tmp_path):
+    root = str(tmp_path / "store")
+    assert rs.read_pointer(root, "abc123") is None
+    rs.write_pointer(root, "abc123", "entry-xyz")
+    assert rs.read_pointer(root, "abc123") == "entry-xyz"
+    # overwrite is atomic + last-write-wins for a single key
+    rs.write_pointer(root, "abc123", "entry-2")
+    assert rs.read_pointer(root, "abc123") == "entry-2"

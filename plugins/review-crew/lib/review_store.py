@@ -88,3 +88,43 @@ def derive_identifiers(cwd):
         "remote_hash": short_hash(remote) if remote else None,
         "gitdir_hash": short_hash(gitdir),
     }
+
+
+def store_root():
+    return os.path.realpath(os.path.expanduser("~/.claude/review-crew"))
+
+
+def _atomic_write(path, text):
+    """Write text atomically: temp file in the same dir + os.replace."""
+    d = os.path.dirname(os.path.abspath(path)) or "."
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".review-store.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _keys_dir(root):
+    return os.path.join(root, "keys")
+
+
+def read_pointer(root, key_hash):
+    p = os.path.join(_keys_dir(root), key_hash)
+    try:
+        with open(p) as fh:
+            return fh.read().strip() or None
+    except OSError:
+        return None
+
+
+def write_pointer(root, key_hash, entry_id):
+    _atomic_write(os.path.join(_keys_dir(root), key_hash), entry_id)
