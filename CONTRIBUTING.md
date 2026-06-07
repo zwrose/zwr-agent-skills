@@ -41,8 +41,8 @@ Run the same checks CI runs — both must pass:
 ```bash
 python3 .github/scripts/validate_marketplace.py
 python3 -m pytest plugins/review-crew/eval/tests/ -q
-# and, if you touched review-code's scripts:
-python3 -m pytest plugins/review-crew/skills/review-code/tests/ -q
+# and, if you touched the shared lib/ helpers:
+python3 -m pytest plugins/review-crew/lib/tests/ -q
 ```
 
 Then:

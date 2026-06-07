@@ -88,7 +88,7 @@ RUBRIC_VERSION=$(sed -n 's/.*rubric-version: *\([0-9][0-9]*\).*/\1/p' "$RUBRIC" 
 ```bash
 if [ -f .claude/review-profile.md ]; then
   # --post path: --root "$SESSION_DIR/repo" (PR-head worktree). branch/default: omit --root (working tree).
-  DOCTOR_JSON=$(python3 "${CLAUDE_PLUGIN_ROOT}/skills/review-code/repo_doctor.py" \
+  DOCTOR_JSON=$(python3 "${CLAUDE_PLUGIN_ROOT}/lib/repo_doctor.py" \
     .claude/review-profile.md "$PLUGIN_VERSION" "$RUBRIC_VERSION" ${DOCTOR_ROOT_ARG})
 fi
 ```
@@ -379,7 +379,7 @@ Each round:
     - Status `CHECK_FAILED` → **HALT**; surface the failing `VERIFY_CMD` output. (When the profile is `mode: unverified`, the fixer runs no checks and cannot return `CHECK_FAILED`.)
     - Status `ESCALATED` → for each escalated finding, present it as a `present-set` intervention now (same prompt shape as step 7), then re-dispatch the fixer with the user's decisions folded in. The follow-up dispatch uses this same `CHECK_FAILED`/`ESCALATED` contract; a finding the user has already decided on is no longer eligible to escalate, so it cannot ping-pong. Do NOT add an escalated finding to the skip-set unless the user skips it. After escalation handling resolves the final `fix-batch`, recompute **blocking-to-fix** (step 9) before evaluating step 14.
 12. **Verify.** If a `VERIFY_CMD` is set, the orchestrator independently runs it from the user's own working tree (never the PR head), non-interactively, with a timeout. Fail (non-zero exit) → **HALT** with `CHECK_FAILED`; surface output. (Do not re-review on a broken tree.) If the profile's verify story is `mode: unverified`, **SKIP this gate** — there is no command to run; the round's commit stands ungated.
-13. **Circuit breaker.** Run `python3 "${CLAUDE_PLUGIN_ROOT}/skills/review-code/circuit_breaker.py" "$SESSION_DIR" 7`. Parse its JSON. If `halt: true` → **HALT**; surface `reason` + `detail` + still-open findings + the commit range (`git log <baseRef>..HEAD --oneline`). Do NOT read or `cat` the diff into the orchestrator context.
+13. **Circuit breaker.** Run `python3 "${CLAUDE_PLUGIN_ROOT}/lib/circuit_breaker.py" "$SESSION_DIR" 7`. Parse its JSON. If `halt: true` → **HALT**; surface `reason` + `detail` + still-open findings + the commit range (`git log <baseRef>..HEAD --oneline`). Do NOT read or `cat` the diff into the orchestrator context.
 14. If `blocking-to-fix > 0` → `round += 1` and repeat from step 1. If `blocking-to-fix == 0`:
     - and there is **no** skipped-blocking finding → **EXIT SUCCESS** (no blocking findings remain; any Minor/Nit are now fixed).
     - and one or more blocking findings were deliberately skipped → **EXIT — CLEAN EXCEPT FOR SKIPPED**: the tree is clean except for the skipped blocking finding(s). List them; do not report a plain SUCCESS verdict.
@@ -532,7 +532,7 @@ EOF
 Run `resolve_diff_lines.py` to validate every comment anchor against the diff. This is non-optional — GitHub returns 422 "Line could not be resolved" for any inline comment whose `(file, line)` doesn't land on a `+` or context line inside a hunk, and the script moves out-of-hunk comments to the nearest valid line (prefixing the body with `(Re: line N)`) and drops comments for files not in the diff:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/review-code/resolve_diff_lines.py" \
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/resolve_diff_lines.py" \
   "$SESSION_DIR/round-1/diff.txt" \
   "$SESSION_DIR/round-1/review.json" \
   --output "$SESSION_DIR/round-1/review-resolved.json"
@@ -579,7 +579,7 @@ These four behaviors are **non-blocking**, run **at end of run** (after the revi
 Wherever the user resolves a finding (this skill: the §7 interventions and any escalation re-prompt — i.e. when an `AskUserQuestion` resolution is recorded), append ONE record per decision to the **project-level** learning-loop store `.claude/review-decisions.json` (NOT the temp `$SESSION_DIR`). Use the bundled helper:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/review-code/decisions.py" \
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/decisions.py" \
   append .claude/review-decisions.json '<record-json>'
 ```
 
@@ -600,7 +600,7 @@ If the user declines or ignores it, record the dismissal (see "Recording a dismi
 After the staleness nudge, analyze the decision store for a repeated signal:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/review-code/decisions.py" \
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/decisions.py" \
   analyze .claude/review-decisions.json --nudge-ack <comma-separated profile nudge-ack hashes>
 ```
 

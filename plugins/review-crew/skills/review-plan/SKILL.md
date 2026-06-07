@@ -61,7 +61,7 @@ RUBRIC_VERSION=$(sed -n 's/.*rubric-version: *\([0-9][0-9]*\).*/\1/p' "$RUBRIC" 
 
 ```bash
 if [ -f .claude/review-profile.md ]; then
-  DOCTOR_JSON=$(python3 "${CLAUDE_PLUGIN_ROOT}/skills/review-code/repo_doctor.py" \
+  DOCTOR_JSON=$(python3 "${CLAUDE_PLUGIN_ROOT}/lib/repo_doctor.py" \
     .claude/review-profile.md "$PLUGIN_VERSION" "$RUBRIC_VERSION")
 fi
 ```
@@ -287,7 +287,7 @@ These four behaviors are **non-blocking**, run **at end of run** (after the term
 Wherever the user resolves a finding (this skill: the §5 step 7 interventions, plus the auto-revised findings in step 6), append ONE record per decision to the **project-level** learning-loop store `.claude/review-decisions.json` (NOT the temp `$SESSION_DIR`). Use the bundled helper:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/review-code/decisions.py" \
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/decisions.py" \
   append .claude/review-decisions.json '<record-json>'
 ```
 
@@ -308,7 +308,7 @@ If the user declines or ignores it, record the dismissal (see "Recording a dismi
 After the staleness nudge, analyze the decision store for a repeated signal:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/review-code/decisions.py" \
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/decisions.py" \
   analyze .claude/review-decisions.json --nudge-ack <comma-separated profile nudge-ack hashes>
 ```
 

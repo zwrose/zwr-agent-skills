@@ -34,7 +34,7 @@ intended behavior (see **Prose fixes applied**, end of file).
 Shared abbreviations: **R-CODE** = `skills/review-code/SKILL.md`, **R-PLAN** =
 `skills/review-plan/SKILL.md`, **R-DEBT** = `skills/audit-debt/SKILL.md`,
 **R-INIT** = `skills/review-init/SKILL.md`, **BASE** = `rubric/review-base.md`,
-**DOCTOR** = `skills/review-code/repo_doctor.py`.
+**DOCTOR** = `lib/repo_doctor.py`.
 
 ---
 
