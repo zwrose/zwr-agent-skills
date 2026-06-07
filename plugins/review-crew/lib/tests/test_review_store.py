@@ -36,8 +36,8 @@ def _git(cwd, *args):
 
 def _init_repo(path, remote=None):
     path = str(path)
-    _git(path, "init", "-q") if False else subprocess.run(
-        ["git", "init", "-q", path], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "init", "-q", path], check=True,
+                   capture_output=True, text=True)
     _git(path, "config", "user.email", "t@t.t")
     _git(path, "config", "user.name", "t")
     if remote:
@@ -332,3 +332,41 @@ def test_gitdir_uses_pre_231_fallback(tmp_path, monkeypatch):
     gd = rs.get_gitdir(repo)
     assert calls["n"] == 1            # fell back
     assert os.path.isabs(gd)
+
+
+def test_resolve_global_falls_back_to_live_entry_when_preferred_dangles(tmp_path):
+    # remote pointer dangles (no entry dir); gitdir pointer points to a live one.
+    repo = _init_repo(tmp_path / "r", remote="git@github.com:o/p.git")
+    root = str(tmp_path / "store")
+    ident = rs.derive_identifiers(repo)
+    rs.write_pointer(root, ident["remote_hash"], "entry-DANGLING")
+    rs.write_pointer(root, ident["gitdir_hash"], "entry-LIVE")
+    os.makedirs(os.path.join(root, "entries", "entry-LIVE"), exist_ok=True)
+    g = rs.resolve_global(repo, root)
+    assert g["entry_id"] == "entry-LIVE"          # chose the live entry, not the dangling remote
+    assert g["healed"] is True
+    assert rs.read_pointer(root, ident["remote_hash"]) == "entry-LIVE"  # re-pointed at the live entry
+
+
+def test_resolve_global_none_when_all_pointers_dangle(tmp_path):
+    repo = _init_repo(tmp_path / "r")
+    root = str(tmp_path / "store")
+    ident = rs.derive_identifiers(repo)
+    rs.write_pointer(root, ident["gitdir_hash"], "entry-GONE")  # no entry dir
+    assert rs.resolve_global(repo, root) is None
+
+
+def test_cli_decide_location(tmp_path):
+    repo = _init_repo(tmp_path / "r")
+    home = tmp_path / "home"
+    out = _run_cli(["decide-location", "--interactive", "true"], repo, home)
+    assert out.returncode == 0 and out.stdout.strip() == "ask"
+    out = _run_cli(["decide-location", "--interactive", "false"], repo, home)
+    assert out.stdout.strip() == "global"
+    # env override wins regardless of --interactive
+    mod = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "review_store.py")
+    env = dict(os.environ, HOME=str(home), REVIEW_CREW_STORAGE="in-repo")
+    r = subprocess.run([sys.executable, mod, "decide-location", "--interactive", "true"],
+                       cwd=repo, env=env, capture_output=True, text=True)
+    assert r.stdout.strip() == "in-repo"

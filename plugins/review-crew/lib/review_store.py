@@ -146,31 +146,40 @@ def resolve_global(cwd, root):
     rh, gh = ident["remote_hash"], ident["gitdir_hash"]
     p_remote = read_pointer(root, rh) if rh else None
     p_gitdir = read_pointer(root, gh)
-    healed = False
 
-    if p_remote and p_gitdir:
-        if p_remote == p_gitdir:
-            entry_id = p_remote
-        else:
-            sys.stderr.write(
-                "review_store: key disagreement; preferring remote-keyed entry\n")
-            entry_id = p_remote
-            write_pointer(root, gh, entry_id)
-            healed = True
-    elif p_remote and not p_gitdir:
-        entry_id = p_remote
-        write_pointer(root, gh, entry_id)
-        healed = True
-    elif p_gitdir and not p_remote:
-        entry_id = p_gitdir
-        if rh:  # a remote exists now but has no pointer yet -> heal
-            write_pointer(root, rh, entry_id)
-            healed = True
-    else:
+    # Candidate entry-ids in preference order (remote first), deduped.
+    candidates = []
+    for c in (p_remote, p_gitdir):
+        if c and c not in candidates:
+            candidates.append(c)
+    if not candidates:
         return None
 
+    # Resolve to a LIVE entry: the first candidate whose entry dir exists. If a
+    # pointer dangles (its entry dir was deleted out of band), fall through to
+    # the other; if none is live, the registration is stale -> treat as absent.
+    entry_id = next(
+        (c for c in candidates if os.path.isdir(os.path.join(root, "entries", c))),
+        None)
+    if entry_id is None:
+        return None
+
+    if p_remote and p_gitdir and p_remote != p_gitdir:
+        sys.stderr.write(
+            "review_store: key disagreement; preferring the live entry\n")
+
+    # Self-heal: point both available keys at the chosen live entry. Only writes
+    # when a pointer is missing or stale, so we never re-point at a dead entry.
+    healed = False
+    if gh and p_gitdir != entry_id:
+        write_pointer(root, gh, entry_id)
+        healed = True
+    if rh and p_remote != entry_id:
+        write_pointer(root, rh, entry_id)
+        healed = True
+
     entry_dir = os.path.join(root, "entries", entry_id)
-    if healed and os.path.isdir(entry_dir):
+    if healed:
         _write_keys_json(entry_dir, ident)
     return {"entry_id": entry_id, "dir": entry_dir, "healed": healed}
 
