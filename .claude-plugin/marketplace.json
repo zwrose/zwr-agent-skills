@@ -1,0 +1,15 @@
+{
+  "name": "zwr-agent-skills",
+  "owner": { "name": "zwrose" },
+  "metadata": {
+    "description": "Zach's personal Claude Code marketplace.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "review-crew",
+      "source": "./plugins/review-crew",
+      "description": "Multi-agent code, plan, and tech-debt review, calibrated per-project."
+    }
+  ]
+}

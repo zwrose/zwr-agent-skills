@@ -1,0 +1,55 @@
+{
+  "fixture": "web-handler",
+  "description": "One in-scope seed per dimension plus three out-of-scope traps. Every seed sits on a '+' line of diff.txt; every trap sits on a context line or is intentional/in-scope-correct per the agents' Do-NOT-Flag lists.",
+  "seeds": [
+    {
+      "dimension": "Security",
+      "severity": "Critical",
+      "taxonomy": "BOLA",
+      "file": "src/handlers/notes.ts",
+      "lineHint": "const updated = await db.notes.update({ id }, { $set: { title: patch.title } });",
+      "why": "updateNote matches the note by id ALONE — no ownerId/ownership field. Under the multi-tenant threat model any authenticated principal can overwrite any other principal's note by guessing the id. Canonical fix: the dual-filter idiom { id, ownerId: session.userId } (see getNote)."
+    },
+    {
+      "dimension": "Code",
+      "severity": "Important",
+      "taxonomy": "hardcoded-error-string",
+      "file": "src/handlers/notes.ts",
+      "lineHint": "if (!updated) return res.status(404).json({ error: \"Note not found\" });",
+      "why": "Hardcoded inline error string/payload on a '+' line where CLAUDE.md + the profile name a centralized error-constants module (src/errors.ts, apiErrors.noteNotFound). Code-reviewer flags the convention drift; suggest apiErrors.noteNotFound."
+    },
+    {
+      "dimension": "Architecture",
+      "severity": "Minor",
+      "taxonomy": "premature-abstraction",
+      "file": "src/handlers/notes.ts",
+      "lineHint": "function persistNote(record) {",
+      "why": "persistNote is a thin wrapper around a single db.notes.insert call, invoked from exactly one place (createNote, in the same diff). The abstraction bar is two callers or a documented second use; inline it until a second caller appears."
+    },
+    {
+      "dimension": "Test",
+      "severity": "Important",
+      "taxonomy": "claim-test-mismatch",
+      "file": "src/handlers/notes.test.ts",
+      "lineHint": "it(\"returns 401 when not authenticated\", async () => {",
+      "why": "The test is named for the unauthenticated path but its setup provides a valid session (userId: u1) and asserts 200 — it never sets the unauthenticated condition before calling updateNote. The claim and the test body disagree; the test passes for the wrong reason and gives false confidence the auth-first short-circuit is covered."
+    }
+  ],
+  "traps": [
+    {
+      "file": "src/handlers/notes.ts",
+      "lineHint": "await db.notes.delete({ id: req.params.id });",
+      "whyNotFlagged": "pre-existing context line — deleteNote is unchanged by this diff (no '+'/'-' prefix). It is a genuine id-alone (BOLA-shaped) smell, but the diff-scope rule makes it Pre-existing → SKIP. Flagging it is a regression."
+    },
+    {
+      "file": "src/handlers/notes.ts",
+      "lineHint": "import { ok, notFound, unauthorized } from \"./responses\";",
+      "whyNotFlagged": "intentional sibling import — './responses' is a colocated sibling in the same handlers directory; code-reviewer's import rule explicitly allows './' for colocated siblings. Flagging the relative path is a regression."
+    },
+    {
+      "file": "src/handlers/notes.ts",
+      "lineHint": "return renderBadge(tier);",
+      "whyNotFlagged": "theme-token / design-token route — noteBadgeColor delegates color/contrast to the design-token theme layer (renderBadge). Code-reviewer's contrast rule excludes values that route through the project's theme; the theme owns contrast. Flagging a contrast/color issue here is a regression."
+    }
+  ]
+}

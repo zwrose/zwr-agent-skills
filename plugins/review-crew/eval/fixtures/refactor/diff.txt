@@ -1,0 +1,124 @@
+diff --git a/src/handlers/admin-orders.ts b/src/handlers/admin-orders.ts
+index 1111111..2222222 100644
+--- a/src/handlers/admin-orders.ts
++++ b/src/handlers/admin-orders.ts
+@@ -1,4 +1,29 @@
+ import { db } from "../db/client";
+ import { getSession } from "../auth/session";
+ import { ok, unauthorized } from "./responses";
+ 
++// Admin-only: cancel every order in the tenant. No function-level
++// authorization check — any authenticated principal can call this.
++export async function cancelAllOrders(req, res) {
++  const session = await getSession(req);
++  if (!session) return unauthorized(res);
++  await db.orders.updateMany({}, { $set: { status: "cancelled" } });
++  return ok(res, { cancelled: true });
++}
++
++export async function updateOrder(req, res) {
++  const session = await getSession(req);
++  if (!session) return unauthorized(res);
++  const { id } = req.params;
++  // Mass-assignment: the whole request body is spread into the update.
++  await db.orders.update({ id, ownerId: session.userId }, { $set: { ...req.body } });
++  return ok(res, { updated: true });
++}
++
++export async function searchOrders(req, res) {
++  const session = await getSession(req);
++  if (!session) return unauthorized(res);
++  // Parameterized query; the data layer escapes values by default.
++  const rows = await db.query("SELECT * FROM orders WHERE owner = ? AND note LIKE ?", [session.userId, req.query.q]);
++  return ok(res, rows);
++}
+diff --git a/src/services/billing.ts b/src/services/billing.ts
+index 1111111..2222222 100644
+--- a/src/services/billing.ts
++++ b/src/services/billing.ts
+@@ -1,7 +1,9 @@
+ import { db } from "../db/client";
+ import { logger } from "../log";
++// Refactor: billing now reaches back into orders to re-read totals.
++import { getOrderTotal } from "./orders";
+ 
+ export async function chargeOrder(orderId, ownerId) {
+-  const total = await db.orders.findOne({ id: orderId, ownerId }).then((o) => o.total);
++  const total = await getOrderTotal(orderId, ownerId);
+   return db.charges.insert({ orderId, ownerId, amount: total });
+ }
+diff --git a/src/services/orders.test.ts b/src/services/orders.test.ts
+index 1111111..2222222 100644
+--- a/src/services/orders.test.ts
++++ b/src/services/orders.test.ts
+@@ -1,9 +1,18 @@
+ import { describe, it, expect, vi } from "vitest";
+-import { classifyOrder } from "./orders";
++import { classifyOrder, getOrderTotal } from "./orders";
+ import { db } from "../db/client";
+ 
+ describe("classifyOrder", () => {
+   it("labels a small order", () => {
+     expect(classifyOrder({ status: "open", total: 5, items: [], priority: false })).toBe("small");
+   });
+ });
++
++describe("getOrderTotal", () => {
++  it("returns the order total", async () => {
++    vi.spyOn(db.orders, "findOne").mockResolvedValue({ total: 42 });
++    const total = await getOrderTotal("o1", "u1");
++    // Mock-echo: asserts exactly the value the mock was configured to return.
++    expect(total).toBe(42);
++  });
++});
+diff --git a/src/services/orders.ts b/src/services/orders.ts
+index 1111111..2222222 100644
+--- a/src/services/orders.ts
++++ b/src/services/orders.ts
+@@ -1,17 +1,44 @@
+ import { db } from "../db/client";
+ import { chargeOrder } from "./billing";
+ 
+ export async function getOrderTotal(orderId, ownerId) {
+   const order = await db.orders.findOne({ id: orderId, ownerId });
+   return order.total;
+ }
+ 
+ export function classifyOrder(order) {
+-  return order.total > 100 ? "large" : "small";
++  if (order.status === "open") {
++    if (order.total > 100) {
++      if (order.items.some((i) => i.backordered)) {
++        return order.priority ? "large-backordered-priority" : "large-backordered";
++      } else {
++        return order.priority ? "large-priority" : "large";
++      }
++    } else if (order.total > 0) {
++      return order.priority ? "small-priority" : "small";
++    } else {
++      return "empty";
++    }
++  } else if (order.status === "closed") {
++    return order.refunded ? "closed-refunded" : "closed";
++  }
++  return "unknown";
+ }
+ 
+ // Size-only growth: this gets longer but stays a flat, single-concern list.
+ export function summarizeOrder(order) {
+-  return `${order.id}: ${order.total}`;
++  const parts = [];
++  parts.push(`id=${order.id}`);
++  parts.push(`total=${order.total}`);
++  parts.push(`status=${order.status}`);
++  parts.push(`items=${order.items.length}`);
++  parts.push(`created=${order.createdAt}`);
++  return parts.join(", ");
+ }
+ 
++// Clear, non-duplicative explicit mapper. NOT "could be more abstract".
++export function statusLabel(status) {
++  if (status === "open") return "Open";
++  if (status === "closed") return "Closed";
++  return "Unknown";
++}

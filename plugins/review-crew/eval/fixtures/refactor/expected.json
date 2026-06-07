@@ -1,0 +1,63 @@
+{
+  "fixture": "refactor",
+  "description": "Targets the new Plan-5 rules (Acyclic-Dependencies, cognitive-complexity, BFLA, BOPLA, mock-echo). Every seed sits on a '+' line of diff.txt; every trap is genuinely out of scope per the agents' Do-NOT-Flag lists (size-only growth, clear-non-duplicative shape, framework-escaped input).",
+  "seeds": [
+    {
+      "dimension": "Architecture",
+      "severity": "Important",
+      "taxonomy": "AcyclicDependencies",
+      "file": "src/services/billing.ts",
+      "lineHint": "import { getOrderTotal } from \"./orders\";",
+      "why": "Introduces a dependency CYCLE: src/services/orders.ts already imports chargeOrder from ./billing (pre-existing context), and this '+' line makes billing import back from ./orders. The diff-introduced edge billing->orders closes the cycle. CLAUDE.md requires the service graph stay acyclic; break it by hoisting the shared total logic into a third module."
+    },
+    {
+      "dimension": "Code",
+      "severity": "Important",
+      "taxonomy": "cognitive-complexity",
+      "file": "src/services/orders.ts",
+      "lineHint": "if (order.items.some((i) => i.backordered)) {",
+      "why": "classifyOrder went from a single ternary to deeply nested conditionals (status branch -> total branch -> backordered branch -> priority ternary), materially raising cognitive complexity with little raw growth. Flag the nested-branching spike (the deepest nesting line is the clearest cite); suggest a flat lookup / early-return decomposition. This targets the cognitive-complexity rule, distinct from raw size."
+    },
+    {
+      "dimension": "Security",
+      "severity": "Critical",
+      "taxonomy": "BFLA",
+      "file": "src/handlers/admin-orders.ts",
+      "lineHint": "export async function cancelAllOrders(req, res) {",
+      "why": "cancelAllOrders is an admin-only action (cancels every order in the tenant via updateMany({})) but performs only the authenticated-session check, NO function-level authorization. Any authenticated principal can invoke it. Add the canonical privilege check (if (!session.isAdmin) return forbidden(res)) before the write."
+    },
+    {
+      "dimension": "Security",
+      "severity": "Important",
+      "taxonomy": "BOPLA",
+      "file": "src/handlers/admin-orders.ts",
+      "lineHint": "await db.orders.update({ id, ownerId: session.userId }, { $set: { ...req.body } });",
+      "why": "updateOrder spreads the entire request body into the $set (mass-assignment). Even though the filter is ownership-scoped, the spread lets a client write fields it should not control (e.g. ownerId, status, privilege flags). Replace with an explicit allowlist of updatable fields per CLAUDE.md."
+    },
+    {
+      "dimension": "Test",
+      "severity": "Important",
+      "taxonomy": "mock-echo",
+      "file": "src/services/orders.test.ts",
+      "lineHint": "expect(total).toBe(42);",
+      "why": "The getOrderTotal test mocks db.orders.findOne to resolve { total: 42 } and then asserts the result is 42 — it asserts only the value its own mock was configured to return. The test exercises no real logic and would pass regardless of getOrderTotal's behavior (mock-echo). Assert on transformed/derived behavior or drop the mock."
+    }
+  ],
+  "traps": [
+    {
+      "file": "src/services/orders.ts",
+      "lineHint": "parts.push(`status=${order.status}`);",
+      "whyNotFlagged": "size-only growth, no second symptom — summarizeOrder got longer but stays a flat, single-concern list-builder with no nesting, no mixed concerns, no coupling. The Plan-5 architecture size rule needs a SECOND symptom; pure length growth alone must not be flagged."
+    },
+    {
+      "file": "src/services/orders.ts",
+      "lineHint": "export function statusLabel(status) {",
+      "whyNotFlagged": "clear-non-duplicative shape — statusLabel is a small explicit mapper that is clear and not duplicative of anything. Architecture's Do-NOT-Flag list says do not raise 'could be more abstract' when the current shape is clear and non-duplicative (concrete > generic). Flagging it as premature/under-abstracted is a regression."
+    },
+    {
+      "file": "src/handlers/admin-orders.ts",
+      "lineHint": "const rows = await db.query(\"SELECT * FROM orders WHERE owner = ? AND note LIKE ?\", [session.userId, req.query.q]);",
+      "whyNotFlagged": "framework-escaped input — req.query.q is passed as a bound ? parameter; the data layer escapes bound values by default (CLAUDE.md). Security's Do-NOT-Flag list excludes theoretical injection where the framework already escapes. Flagging this as SQL injection is a regression."
+    }
+  ]
+}
