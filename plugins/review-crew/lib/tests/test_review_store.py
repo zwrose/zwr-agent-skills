@@ -197,3 +197,51 @@ def test_create_in_repo_returns_dot_claude_and_mints_no_global(tmp_path):
     assert path == os.path.join(repo, ".claude", "review-profile.md")
     assert not os.path.exists(os.path.join(root, "entries"))
     assert not os.path.exists(os.path.join(root, "keys"))
+
+
+CONTRACT_KEYS = {"kind", "path", "location", "exists", "healed", "entry_id"}
+
+
+def test_resolve_none_when_nothing(tmp_path):
+    repo = _init_repo(tmp_path / "r")
+    r = rs.resolve(repo, "profile", str(tmp_path / "store"))
+    assert set(r) == CONTRACT_KEYS
+    assert r["location"] == "none"
+    assert r["path"] is None
+    assert r["exists"] is False
+
+
+def test_resolve_in_repo_wins_over_global(tmp_path):
+    repo = _init_repo(tmp_path / "r", remote="git@github.com:o/p.git")
+    root = str(tmp_path / "store")
+    # global profile exists
+    gpath = rs.create(repo, "profile", "global", root)
+    open(gpath, "w").write("global")
+    # in-repo profile exists too -> must win
+    ipath = rs.create(repo, "profile", "in-repo", root)
+    open(ipath, "w").write("inrepo")
+    r = rs.resolve(repo, "profile", root)
+    assert r["location"] == "in-repo"
+    assert r["path"] == os.path.join(repo, ".claude", "review-profile.md")
+    assert r["exists"] is True
+
+
+def test_resolve_global_when_only_global(tmp_path):
+    repo = _init_repo(tmp_path / "r", remote="git@github.com:o/p.git")
+    root = str(tmp_path / "store")
+    gpath = rs.create(repo, "profile", "global", root)
+    open(gpath, "w").write("global")
+    r = rs.resolve(repo, "profile", root)
+    assert r["location"] == "global"
+    assert r["path"] == gpath
+    assert r["exists"] is True
+
+
+def test_resolve_decisions_colocates_with_profile(tmp_path):
+    repo = _init_repo(tmp_path / "r", remote="git@github.com:o/p.git")
+    root = str(tmp_path / "store")
+    gpath = rs.create(repo, "profile", "global", root)
+    open(gpath, "w").write("global")
+    r = rs.resolve(repo, "decisions", root)
+    assert r["location"] == "global"
+    assert r["path"] == os.path.join(os.path.dirname(gpath), "review-decisions.json")

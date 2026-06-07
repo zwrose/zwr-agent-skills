@@ -196,3 +196,25 @@ def create(cwd, kind, location, root):
     if ident["remote_hash"]:
         write_pointer(root, ident["remote_hash"], entry_id)
     return os.path.join(entry_dir, FILENAMES[kind])
+
+
+def resolve(cwd, kind, root):
+    """Resolve `kind`'s path. Location is keyed on the PROFILE: in-repo profile
+    wins, else a global entry whose profile exists, else none. Decisions
+    co-locate with the profile."""
+    in_repo_profile = os.path.join(cwd, ".claude", "review-profile.md")
+    if os.path.exists(in_repo_profile):
+        path = os.path.join(cwd, ".claude", FILENAMES[kind])
+        return {"kind": kind, "path": path, "location": "in-repo",
+                "exists": os.path.exists(path), "healed": False, "entry_id": None}
+
+    g = resolve_global(cwd, root)
+    if g is not None and os.path.exists(os.path.join(g["dir"], "review-profile.md")):
+        path = os.path.join(g["dir"], FILENAMES[kind])
+        return {"kind": kind, "path": path, "location": "global",
+                "exists": os.path.exists(path), "healed": g["healed"],
+                "entry_id": g["entry_id"]}
+
+    return {"kind": kind, "path": None, "location": "none", "exists": False,
+            "healed": g["healed"] if g else False,
+            "entry_id": g["entry_id"] if g else None}
