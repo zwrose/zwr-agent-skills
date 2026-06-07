@@ -26,4 +26,4 @@ jobs:
         run: python3 -m pip install --upgrade pytest
 
       - name: Run review-crew eval tests
-        run: python3 -m pytest plugins/review-crew/eval/tests/ -q
+        run: python3 -m pytest plugins/review-crew/lib/tests/ plugins/review-crew/eval/tests/ -q
