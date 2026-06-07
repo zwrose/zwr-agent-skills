@@ -218,3 +218,57 @@ def resolve(cwd, kind, root):
     return {"kind": kind, "path": None, "location": "none", "exists": False,
             "healed": g["healed"] if g else False,
             "entry_id": g["entry_id"] if g else None}
+
+
+def decide_location(env_value, interactive):
+    """Where to create when nothing resolved. Env override wins; else interactive
+    callers must ask; else (headless) default to global (zero-footprint)."""
+    if env_value in ("in-repo", "global"):
+        return env_value
+    return "ask" if interactive else "global"
+
+
+def _parse_kv(args, flag):
+    if flag in args:
+        i = args.index(flag)
+        if i + 1 < len(args):
+            return args[i + 1]
+    return None
+
+
+def main(argv):
+    args = argv[1:]
+    if not args:
+        sys.stderr.write("Usage: review_store.py resolve|create|decide-location ...\n")
+        return 2
+    cmd = args[0]
+    try:
+        if cmd == "resolve":
+            kind = _parse_kv(args, "--kind") or "profile"
+            if kind not in FILENAMES:
+                sys.stderr.write(f"bad --kind: {kind}\n")
+                return 2
+            sys.stdout.write(json.dumps(resolve(os.getcwd(), kind, store_root())) + "\n")
+            return 0
+        if cmd == "create":
+            kind = _parse_kv(args, "--kind") or "profile"
+            location = _parse_kv(args, "--location")
+            if kind not in FILENAMES or location not in ("global", "in-repo"):
+                sys.stderr.write("usage: create --kind profile|decisions --location global|in-repo\n")
+                return 2
+            sys.stdout.write(create(os.getcwd(), kind, location, store_root()) + "\n")
+            return 0
+        if cmd == "decide-location":
+            interactive = _parse_kv(args, "--interactive") != "false"
+            sys.stdout.write(
+                decide_location(os.environ.get("REVIEW_CREW_STORAGE"), interactive) + "\n")
+            return 0
+    except Exception as exc:  # internal error -> non-zero exit per the failure contract
+        sys.stderr.write(f"review_store error: {exc}\n")
+        return 1
+    sys.stderr.write(f"unknown command: {cmd}\n")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

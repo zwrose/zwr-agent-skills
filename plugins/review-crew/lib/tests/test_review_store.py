@@ -245,3 +245,49 @@ def test_resolve_decisions_colocates_with_profile(tmp_path):
     r = rs.resolve(repo, "decisions", root)
     assert r["location"] == "global"
     assert r["path"] == os.path.join(os.path.dirname(gpath), "review-decisions.json")
+
+
+@pytest.mark.parametrize("env,interactive,expected", [
+    ("in-repo", True, "in-repo"),
+    ("global", True, "global"),
+    ("global", False, "global"),
+    (None, True, "ask"),
+    (None, False, "global"),       # headless default
+    ("bogus", True, "ask"),        # invalid env ignored
+    ("bogus", False, "global"),
+])
+def test_decide_location(env, interactive, expected):
+    assert rs.decide_location(env, interactive) == expected
+
+
+def _run_cli(args, cwd, home):
+    env = dict(os.environ, HOME=str(home))
+    env.pop("REVIEW_CREW_STORAGE", None)
+    mod = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "review_store.py")
+    return subprocess.run([sys.executable, mod, *args], cwd=cwd, env=env,
+                          capture_output=True, text=True)
+
+
+def test_cli_resolve_none_exits_zero_with_null_path(tmp_path):
+    repo = _init_repo(tmp_path / "r")
+    out = _run_cli(["resolve", "--kind", "profile"], repo, tmp_path / "home")
+    assert out.returncode == 0
+    payload = json.loads(out.stdout)
+    assert payload["location"] == "none"
+    assert payload["path"] is None
+
+
+def test_cli_create_then_resolve_global(tmp_path):
+    repo = _init_repo(tmp_path / "r", remote="git@github.com:o/p.git")
+    home = tmp_path / "home"
+    cpath = _run_cli(["create", "--kind", "profile", "--location", "global"],
+                     repo, home).stdout.strip()
+    open(cpath, "w").write("p")
+    out = _run_cli(["resolve", "--kind", "profile"], repo, home)
+    assert json.loads(out.stdout)["path"] == cpath
+
+
+def test_cli_unknown_command_exits_nonzero(tmp_path):
+    out = _run_cli(["frobnicate"], tmp_path, tmp_path / "home")
+    assert out.returncode != 0
