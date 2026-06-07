@@ -128,3 +128,48 @@ def read_pointer(root, key_hash):
 
 def write_pointer(root, key_hash, entry_id):
     _atomic_write(os.path.join(_keys_dir(root), key_hash), entry_id)
+
+
+def _write_keys_json(entry_dir, ident):
+    _atomic_write(os.path.join(entry_dir, "keys.json"), json.dumps({
+        "remote": ident["remote"],
+        "gitdir": ident["gitdir"],
+        "remote_hash": ident["remote_hash"],
+        "gitdir_hash": ident["gitdir_hash"],
+    }, indent=2))
+
+
+def resolve_global(cwd, root):
+    """Find the global entry for cwd via its key pointers, self-healing a
+    missing/changed pointer. Return {entry_id, dir, healed} or None."""
+    ident = derive_identifiers(cwd)
+    rh, gh = ident["remote_hash"], ident["gitdir_hash"]
+    p_remote = read_pointer(root, rh) if rh else None
+    p_gitdir = read_pointer(root, gh)
+    healed = False
+
+    if p_remote and p_gitdir:
+        if p_remote == p_gitdir:
+            entry_id = p_remote
+        else:
+            sys.stderr.write(
+                "review_store: key disagreement; preferring remote-keyed entry\n")
+            entry_id = p_remote
+            write_pointer(root, gh, entry_id)
+            healed = True
+    elif p_remote and not p_gitdir:
+        entry_id = p_remote
+        write_pointer(root, gh, entry_id)
+        healed = True
+    elif p_gitdir and not p_remote:
+        entry_id = p_gitdir
+        if rh:  # a remote exists now but has no pointer yet -> heal
+            write_pointer(root, rh, entry_id)
+            healed = True
+    else:
+        return None
+
+    entry_dir = os.path.join(root, "entries", entry_id)
+    if healed and os.path.isdir(entry_dir):
+        _write_keys_json(entry_dir, ident)
+    return {"entry_id": entry_id, "dir": entry_dir, "healed": healed}

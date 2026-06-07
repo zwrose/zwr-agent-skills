@@ -95,3 +95,70 @@ def test_pointer_round_trip(tmp_path):
     # overwrite is atomic + last-write-wins for a single key
     rs.write_pointer(root, "abc123", "entry-2")
     assert rs.read_pointer(root, "abc123") == "entry-2"
+
+
+def _register(root, ident, entry_id):
+    """Manually register an entry's pointers + keys.json for test setup."""
+    entry_dir = os.path.join(root, "entries", entry_id)
+    os.makedirs(entry_dir, exist_ok=True)
+    rs._write_keys_json(entry_dir, ident)
+    rs.write_pointer(root, ident["gitdir_hash"], entry_id)
+    if ident["remote_hash"]:
+        rs.write_pointer(root, ident["remote_hash"], entry_id)
+
+
+def test_resolve_global_both_pointers_equal(tmp_path):
+    repo = _init_repo(tmp_path / "r", remote="git@github.com:o/p.git")
+    root = str(tmp_path / "store")
+    ident = rs.derive_identifiers(repo)
+    _register(root, ident, ident["gitdir_hash"])
+    g = rs.resolve_global(repo, root)
+    assert g["entry_id"] == ident["gitdir_hash"]
+    assert g["healed"] is False
+
+
+def test_resolve_global_none_when_unregistered(tmp_path):
+    repo = _init_repo(tmp_path / "r")
+    assert rs.resolve_global(repo, str(tmp_path / "store")) is None
+
+
+def test_self_heal_when_gitdir_pointer_missing(tmp_path):
+    # remote pointer present, gitdir pointer absent -> heal writes gitdir pointer
+    repo = _init_repo(tmp_path / "r", remote="git@github.com:o/p.git")
+    root = str(tmp_path / "store")
+    ident = rs.derive_identifiers(repo)
+    eid = ident["gitdir_hash"]
+    os.makedirs(os.path.join(root, "entries", eid), exist_ok=True)
+    rs._write_keys_json(os.path.join(root, "entries", eid), ident)
+    rs.write_pointer(root, ident["remote_hash"], eid)   # only remote pointer
+    g = rs.resolve_global(repo, root)
+    assert g["entry_id"] == eid
+    assert g["healed"] is True
+    assert rs.read_pointer(root, ident["gitdir_hash"]) == eid  # healed
+
+
+def test_self_heal_when_remote_pointer_missing(tmp_path):
+    # gitdir pointer present, remote now exists but its pointer absent -> heal
+    repo = _init_repo(tmp_path / "r", remote="git@github.com:o/p.git")
+    root = str(tmp_path / "store")
+    ident = rs.derive_identifiers(repo)
+    eid = ident["gitdir_hash"]
+    os.makedirs(os.path.join(root, "entries", eid), exist_ok=True)
+    rs._write_keys_json(os.path.join(root, "entries", eid), ident)
+    rs.write_pointer(root, ident["gitdir_hash"], eid)   # only gitdir pointer
+    g = rs.resolve_global(repo, root)
+    assert g["healed"] is True
+    assert rs.read_pointer(root, ident["remote_hash"]) == eid  # healed
+
+
+def test_disagreement_prefers_remote(tmp_path):
+    repo = _init_repo(tmp_path / "r", remote="git@github.com:o/p.git")
+    root = str(tmp_path / "store")
+    ident = rs.derive_identifiers(repo)
+    rs.write_pointer(root, ident["remote_hash"], "entry-REMOTE")
+    rs.write_pointer(root, ident["gitdir_hash"], "entry-GITDIR")
+    os.makedirs(os.path.join(root, "entries", "entry-REMOTE"), exist_ok=True)
+    g = rs.resolve_global(repo, root)
+    assert g["entry_id"] == "entry-REMOTE"
+    assert g["healed"] is True
+    assert rs.read_pointer(root, ident["gitdir_hash"]) == "entry-REMOTE"  # re-pointed
