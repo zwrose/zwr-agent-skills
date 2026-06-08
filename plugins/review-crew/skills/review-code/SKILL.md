@@ -69,11 +69,23 @@ Files written during the review. **Per-round artifacts live under `$SESSION_DIR/
 
 Decide mode (auto-detected or explicit, per `## Invocation`). Create the session directory.
 
-**Resolve the base rubric and profile paths once.** The base rubric is bundled at `${CLAUDE_PLUGIN_ROOT}/rubric/review-base.md`; the project profile lives at `.claude/review-profile.md`. Capture the rubric path so it can be embedded — **expanded to an absolute path** — into subagent prompts (subagents may not inherit `${CLAUDE_PLUGIN_ROOT}`):
+**Resolve the base rubric path once.** The base rubric is bundled at `${CLAUDE_PLUGIN_ROOT}/rubric/review-base.md`. Capture the rubric path so it can be embedded — **expanded to an absolute path** — into subagent prompts (subagents may not inherit `${CLAUDE_PLUGIN_ROOT}`):
 
 ```bash
 RUBRIC="${CLAUDE_PLUGIN_ROOT}/rubric/review-base.md"   # absolute; embed the expanded value in subagent prompts
-PROFILE=".claude/review-profile.md"
+```
+
+**Resolve the profile and decisions paths once (resolver-driven).** The profile/decisions may live in-repo (`./.claude/`) or in the global per-repo store; `review_store.py resolve` returns the resolved path (or `location: none` when nothing exists yet). Capture `$PROFILE`, `$LOCATION`, `$EXISTS`, and `$DECISIONS` here, before the staleness self-check and profile bootstrap below use them:
+
+```bash
+RES=$(python3 "${CLAUDE_PLUGIN_ROOT}/lib/review_store.py" resolve --kind profile) \
+  || { echo "review_store resolve failed — continuing with strict fallback"; RES='{"location":"none","exists":false,"path":null}'; }
+PROFILE=$(printf '%s' "$RES" | jq -r '.path // empty')
+LOCATION=$(printf '%s' "$RES" | jq -r .location)
+EXISTS=$(printf '%s' "$RES" | jq -r .exists)
+DRES=$(python3 "${CLAUDE_PLUGIN_ROOT}/lib/review_store.py" resolve --kind decisions) \
+  || { echo "review_store resolve --kind decisions failed"; DRES='{"path":null}'; }
+DECISIONS=$(printf '%s' "$DRES" | jq -r '.path // empty')
 ```
 
 Also resolve the engine versions the staleness self-check (next) needs — the **plugin version** from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` (`version`) and the **rubric-version** from the first line of `$RUBRIC` (`<!-- rubric-version: N -->`):
@@ -83,32 +95,37 @@ PLUGIN_VERSION=$(python3 -c "import json;print(json.load(open('${CLAUDE_PLUGIN_R
 RUBRIC_VERSION=$(sed -n 's/.*rubric-version: *\([0-9][0-9]*\).*/\1/p' "$RUBRIC" | head -1)
 ```
 
-**Staleness self-check (first action).** Before the profile bootstrap and before dispatching anything, run the deterministic staleness/degraded self-check. It soft-fails (always exit 0) and **must never block the review** on drift — it only produces a non-blocking nudge surfaced at end of run. The root depends on the path: `--post` reads the PR-head worktree (`--root "$SESSION_DIR/repo"`), while branch/default paths read the working tree (default root, `.`). Run it only when a profile already exists — a MISSING profile routes to the profile bootstrap below (which runs review-init/bootstrap), not to staleness:
+**Staleness self-check (first action).** Before the profile bootstrap and before dispatching anything, run the deterministic staleness/degraded self-check. It soft-fails (always exit 0) and **must never block the review** on drift — it only produces a non-blocking nudge surfaced at end of run. The root depends on the path: `--post` reads the PR-head worktree (`--root "$SESSION_DIR/repo"`), while branch/default paths read the working tree (default root, `.`). Run it only when a profile already resolved (`$EXISTS` is `true`) — a MISSING profile (`$LOCATION` is `none`) routes to the profile bootstrap below (which runs review-init/bootstrap), not to staleness:
 
 ```bash
-if [ -f .claude/review-profile.md ]; then
+if [ "$EXISTS" = "true" ]; then
   # --post path: --root "$SESSION_DIR/repo" (PR-head worktree). branch/default: omit --root (working tree).
-  DOCTOR_JSON=$(python3 "${CLAUDE_PLUGIN_ROOT}/skills/review-code/repo_doctor.py" \
-    .claude/review-profile.md "$PLUGIN_VERSION" "$RUBRIC_VERSION" ${DOCTOR_ROOT_ARG})
+  DOCTOR_JSON=$(python3 "${CLAUDE_PLUGIN_ROOT}/lib/repo_doctor.py" \
+    "$PROFILE" "$PLUGIN_VERSION" "$RUBRIC_VERSION" ${DOCTOR_ROOT_ARG})
 fi
 ```
 
 (`DOCTOR_ROOT_ARG` is `--root "$SESSION_DIR/repo"` on the `--post` path once the detached worktree exists — run the check after the worktree is created in PR `--post` setup — and empty otherwise.) Capture the JSON in `DOCTOR_JSON`. On `readable: false`, tell the user "profile unreadable — re-run `/review-crew:review-init`" and **continue** (do not crash, do not block). Otherwise retain `message`, `signal_hash`, and `nudge_acked` for the **end-of-run staleness nudge** (see End-of-Loop Summary / Read-Only Paths). Do NOT act on `drift` here — it is informational only.
 
-**Profile bootstrap (run before dispatching anything).** The review engine reads its per-project calibration (threat model, verify command, scope, focus hints, canonical patterns) from `.claude/review-profile.md`. If it's absent, create it first:
+**Profile bootstrap (run before dispatching anything).** The review engine reads its per-project calibration (threat model, verify command, scope, focus hints, canonical patterns) from the resolved profile. If nothing resolved (`$LOCATION` is `none`), decide where to store it, create it, then write it:
 
 ```bash
-if [ ! -f .claude/review-profile.md ]; then
-  # No profile yet — run review-init's create procedure INLINE (do not invoke another skill).
-  # Interactive: run review-init Steps 1–4 (detect → interview → seed patterns → write .claude/review-profile.md).
-  # Headless / non-interactive: write a status: provisional profile from detected defaults with the STRICT threat model.
-  :
+if [ "$LOCATION" = "none" ]; then
+  # Decide location: env override > ask (interactive) > global (headless).
+  INTERACTIVE=true   # the orchestrator sets this to false on a headless/non-interactive run (no human to answer), so decide-location returns "global" deterministically instead of "ask"
+  LOC=$(python3 "${CLAUDE_PLUGIN_ROOT}/lib/review_store.py" decide-location --interactive "$INTERACTIVE")
+  # If LOC is "ask", present the in-repo vs global AskUserQuestion now and set LOC.
+  PROFILE=$(python3 "${CLAUDE_PLUGIN_ROOT}/lib/review_store.py" create --kind profile --location "$LOC")
+  DECISIONS=$(python3 "${CLAUDE_PLUGIN_ROOT}/lib/review_store.py" create --kind decisions --location "$LOC")
+  # Then run review-init's create procedure inline, writing the profile to $PROFILE.
 fi
 ```
 
-If `.claude/review-profile.md` is absent, run review-init's create procedure inline (`plugins/review-crew/skills/review-init/SKILL.md`, Steps 1–4: detect → interview → seed canonical patterns → write the profile), then continue. Headless / non-interactive runs get a provisional, strict-threat-model profile from detected defaults. (Do not run any staleness, reconcile, or learning-loop step here — out of scope.)
+When `decide-location` returns `ask`, present the in-repo-vs-global `AskUserQuestion` (per the spec's *Halt-and-ask init flow*) and use the answer as `$LOC`.
 
-**Read the verify story from the profile** (`## Verify` section of `.claude/review-profile.md`). This sets `VERIFY_CMD` for the orchestrator's verify gate and the fixer (see `## The verify command` below):
+When `$LOCATION` is `none`, run review-init's create procedure inline (`plugins/review-crew/skills/review-init/SKILL.md`, Steps 1–4: detect → interview → seed canonical patterns → write the profile to `$PROFILE`), then continue. Headless / non-interactive runs get a provisional, strict-threat-model profile from detected defaults. (Do not run any staleness, reconcile, or learning-loop step here — out of scope.)
+
+**Read the verify story from the resolved profile** (the `## Verify` section of `$PROFILE`). This sets `VERIFY_CMD` for the orchestrator's verify gate and the fixer (see `## The verify command` below):
 
 - `command: <cmd>` present → `VERIFY_CMD="<cmd>"`.
 - `mode: unverified` → no verify command; the verify gate is skipped and commits proceed ungated.
@@ -228,7 +245,7 @@ Do **not** tier or skip specialists based on which files changed. Coverage unifo
 
 ### 3. Dispatch Specialists in Parallel
 
-Launch all four specialists in a **single message with four `Agent` tool calls** so they run in parallel, each dispatched by its `subagent_type` (the agent's name). Each gets the same prompt template, parameterized by `subagent_type`, dimension label, and findings filename. The agent's review methodology is its own system prompt — the prompt below is context-only (paths and rules); do **not** tell it to read an agent file. Embed the **absolute** base-rubric path (the expanded value of `RUBRIC`) so the subagent can read it:
+Launch all four specialists in a **single message with four `Agent` tool calls** so they run in parallel, each dispatched by its `subagent_type` (the agent's name). Each gets the same prompt template, parameterized by `subagent_type`, dimension label, and findings filename. The agent's review methodology is its own system prompt — the prompt below is context-only (paths and rules); do **not** tell it to read an agent file. Embed the **absolute** base-rubric path (the expanded value of `RUBRIC`) so the subagent can read it. Substitute `<PROFILE_PATH>` with the resolved absolute `$PROFILE` when building each subagent prompt (subagents do not inherit shell vars):
 
 ```
 You are reviewing <mode> for repo <repo>, target <pr-or-branch>.
@@ -244,7 +261,7 @@ patterns, conventions). Apply the diff-scope rule: only flag code in `+` or
 ## Context files
 - Diff: $SESSION_DIR/round-<round>/diff.txt
 - Base rubric (severity, verification rules, findings format): <absolute RUBRIC path>
-- Project profile (threat model, scope, focus hints, canonical patterns): .claude/review-profile.md
+- Project profile (threat model, scope, focus hints, canonical patterns): <PROFILE_PATH>
 - CLAUDE.md (project conventions): CLAUDE.md
 - <PR read-only paths only> PR branch checkout: $SESSION_DIR/repo/
 - <PR mode only> Prior comments + author justifications: $SESSION_DIR/prior-comments.json
@@ -370,7 +387,7 @@ Each round:
      ] }
      ```
      Add every `skip` identity to the skip-set; if a skipped finding is Critical or Important, also remember it as a **skipped-blocking** finding (its `severity` is recorded in `resolutions.json` so this survives compaction). `approved` = `present-set` entries with action `fix`/`fix-with-guidance` (carry `guidance`).
-     **Record decisions (learning loop):** after writing `resolutions.json`, append one `decisions.py` record per resolution to `.claude/review-decisions.json` (`action`: `skip` → `skip`, `fix-with-guidance` → `guidance`, `fix` → `fix`), per `## Learning Loop & Staleness Nudge` → "Recording decisions". Also append a `fix` record for each `auto-fix-set` finding fixed silently this round. This append is non-blocking and never gates the loop.
+     **Record decisions (learning loop):** after writing `resolutions.json`, append one `decisions.py` record per resolution to the resolved decisions store (`$DECISIONS`) (`action`: `skip` → `skip`, `fix-with-guidance` → `guidance`, `fix` → `fix`), per `## Learning Loop & Staleness Nudge` → "Recording decisions". Also append a `fix` record for each `auto-fix-set` finding fixed silently this round. This append is non-blocking and never gates the loop.
    - If empty: `approved = []`, write no resolutions file.
 8. **Fix batch.** `auto-fix-set` = effective findings where `recommendation` is `Fix` AND `classification` is `mechanical`. `fix-batch` = `auto-fix-set ∪ approved`. Write `round-<round>/fix-batch.json` (full finding objects; attach `userGuidance` to any with guidance).
 9. **Blocking-to-fix** = count of `fix-batch` findings with severity Critical or Important.
@@ -379,7 +396,7 @@ Each round:
     - Status `CHECK_FAILED` → **HALT**; surface the failing `VERIFY_CMD` output. (When the profile is `mode: unverified`, the fixer runs no checks and cannot return `CHECK_FAILED`.)
     - Status `ESCALATED` → for each escalated finding, present it as a `present-set` intervention now (same prompt shape as step 7), then re-dispatch the fixer with the user's decisions folded in. The follow-up dispatch uses this same `CHECK_FAILED`/`ESCALATED` contract; a finding the user has already decided on is no longer eligible to escalate, so it cannot ping-pong. Do NOT add an escalated finding to the skip-set unless the user skips it. After escalation handling resolves the final `fix-batch`, recompute **blocking-to-fix** (step 9) before evaluating step 14.
 12. **Verify.** If a `VERIFY_CMD` is set, the orchestrator independently runs it from the user's own working tree (never the PR head), non-interactively, with a timeout. Fail (non-zero exit) → **HALT** with `CHECK_FAILED`; surface output. (Do not re-review on a broken tree.) If the profile's verify story is `mode: unverified`, **SKIP this gate** — there is no command to run; the round's commit stands ungated.
-13. **Circuit breaker.** Run `python3 "${CLAUDE_PLUGIN_ROOT}/skills/review-code/circuit_breaker.py" "$SESSION_DIR" 7`. Parse its JSON. If `halt: true` → **HALT**; surface `reason` + `detail` + still-open findings + the commit range (`git log <baseRef>..HEAD --oneline`). Do NOT read or `cat` the diff into the orchestrator context.
+13. **Circuit breaker.** Run `python3 "${CLAUDE_PLUGIN_ROOT}/lib/circuit_breaker.py" "$SESSION_DIR" 7`. Parse its JSON. If `halt: true` → **HALT**; surface `reason` + `detail` + still-open findings + the commit range (`git log <baseRef>..HEAD --oneline`). Do NOT read or `cat` the diff into the orchestrator context.
 14. If `blocking-to-fix > 0` → `round += 1` and repeat from step 1. If `blocking-to-fix == 0`:
     - and there is **no** skipped-blocking finding → **EXIT SUCCESS** (no blocking findings remain; any Minor/Nit are now fixed).
     - and one or more blocking findings were deliberately skipped → **EXIT — CLEAN EXCEPT FOR SKIPPED**: the tree is clean except for the skipped blocking finding(s). List them; do not report a plain SUCCESS verdict.
@@ -394,7 +411,7 @@ You are triaging code-review findings for one round of an auto-fix loop.
   findings whose ids are in this list: <ids of effective findings>)
 - Triage rubric: the base rubric's "Triage rubric (mechanical vs judgment)"
   section (absolute path: <absolute RUBRIC path>)
-- Project profile: .claude/review-profile.md (threat model, scope, focus hints)
+- Project profile: <PROFILE_PATH> (threat model, scope, focus hints)
 - Project conventions: CLAUDE.md
 - Code to inspect: the current working tree (read the cited files to judge
   whether a fix is mechanical or a judgment call)
@@ -439,7 +456,7 @@ You are the fixer for one round of an auto-fix code-review loop.
 - Findings to fix: $SESSION_DIR/round-<N>/fix-batch.json (array; each has
   id, severity, dimension, file, line, body, suggestion, and optional
   userGuidance)
-- Conventions: CLAUDE.md and the project profile (.claude/review-profile.md);
+- Conventions: CLAUDE.md and the project profile (<PROFILE_PATH>);
   severity/format from the base rubric (<absolute RUBRIC path>)
 - Work in the current branch's working tree at <cwd>
 - Verify command: <VERIFY_CMD, or the literal "none" when the profile is mode: unverified>
@@ -504,7 +521,7 @@ Open with the verdict banner and the one-line summary. If the `ask-set` is empty
 
 The approved set = `auto-include` ∪ the findings approved from the `ask-set`. After the last batch, summarize how many of each severity were approved, then print a terminal report grouped by severity. Lead with the verdict label in bold. For each approved finding: severity tag, `file:line`, title, body, and the orchestrator POV line. End with the count summary (e.g. `"3 Critical, 5 Important, 2 Minor approved"`). Save nothing else to disk — `compiled.json` already has the full record.
 
-**Record decisions (learning loop):** as you resolve the `ask-set` findings, append one `decisions.py` record per decision to `.claude/review-decisions.json` (**Approve**/**Modify**/**Downgrade** → `fix`; **Skip** → `skip`), per `## Learning Loop & Staleness Nudge`. Then, after the terminal report, run the three non-blocking end-of-run steps (staleness nudge, then learning-loop proposal, then provisional-profile confirmation) from that section, in order.
+**Record decisions (learning loop):** as you resolve the `ask-set` findings, append one `decisions.py` record per decision to the resolved decisions store (`$DECISIONS`) (**Approve**/**Modify**/**Downgrade** → `fix`; **Skip** → `skip`), per `## Learning Loop & Staleness Nudge`. Then, after the terminal report, run the three non-blocking end-of-run steps (staleness nudge, then learning-loop proposal, then provisional-profile confirmation) from that section, in order.
 
 ### `--post`
 
@@ -532,7 +549,7 @@ EOF
 Run `resolve_diff_lines.py` to validate every comment anchor against the diff. This is non-optional — GitHub returns 422 "Line could not be resolved" for any inline comment whose `(file, line)` doesn't land on a `+` or context line inside a hunk, and the script moves out-of-hunk comments to the nearest valid line (prefixing the body with `(Re: line N)`) and drops comments for files not in the diff:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/review-code/resolve_diff_lines.py" \
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/resolve_diff_lines.py" \
   "$SESSION_DIR/round-1/diff.txt" \
   "$SESSION_DIR/round-1/review.json" \
   --output "$SESSION_DIR/round-1/review-resolved.json"
@@ -558,11 +575,11 @@ If the post returns 422 "Line could not be resolved" despite running `resolve_di
 
 Report the review URL (`html_url` from the verification call) to the user.
 
-**Record decisions + end-of-run steps (learning loop):** as you resolve the `ask-set` during selection, append one `decisions.py` record per decision to `.claude/review-decisions.json` (a finding selected for posting → `fix`; a **Skip**/**Drop** → `skip`), per `## Learning Loop & Staleness Nudge`. Then, after reporting the review URL, run the three non-blocking end-of-run steps (staleness nudge, then learning-loop proposal, then provisional-profile confirmation) from that section, in order. (On the `--post` path the staleness check ran with `--root "$SESSION_DIR/repo"`.)
+**Record decisions + end-of-run steps (learning loop):** as you resolve the `ask-set` during selection, append one `decisions.py` record per decision to the resolved decisions store (`$DECISIONS`) (a finding selected for posting → `fix`; a **Skip**/**Drop** → `skip`), per `## Learning Loop & Staleness Nudge`. Then, after reporting the review URL, run the three non-blocking end-of-run steps (staleness nudge, then learning-loop proposal, then provisional-profile confirmation) from that section, in order. (On the `--post` path the staleness check ran with `--root "$SESSION_DIR/repo"`.)
 
 ## The verify command
 
-The orchestrator's verify gate (loop step 12) and the fixer (prompt step 3) both run the project's own verify command, read from `.claude/review-profile.md`'s `## Verify` section during Setup. There are three branches:
+The orchestrator's verify gate (loop step 12) and the fixer (prompt step 3) both run the project's own verify command, read from the resolved profile (`$PROFILE`)'s `## Verify` section during Setup. There are three branches:
 
 - **`command: <cmd>` →** `VERIFY_CMD="<cmd>"`. Both the orchestrator's gate and the fixer run `VERIFY_CMD` from the user's own working tree (never the PR head), non-interactively, with a timeout. A non-zero exit is a **HALT / `CHECK_FAILED`** — the orchestrator surfaces the failing output and does not re-review on a broken tree.
 - **`mode: unverified` →** there is no verify command. SKIP the verify gate (step 12); tell the fixer not to run checks (verify command `"none"`); commits proceed ungated. State "unverified" in the dispatch summary and the End-of-Loop summary.
@@ -576,11 +593,11 @@ These four behaviors are **non-blocking**, run **at end of run** (after the revi
 
 ### Recording decisions (at resolution time)
 
-Wherever the user resolves a finding (this skill: the §7 interventions and any escalation re-prompt — i.e. when an `AskUserQuestion` resolution is recorded), append ONE record per decision to the **project-level** learning-loop store `.claude/review-decisions.json` (NOT the temp `$SESSION_DIR`). Use the bundled helper:
+Wherever the user resolves a finding (this skill: the §7 interventions and any escalation re-prompt — i.e. when an `AskUserQuestion` resolution is recorded), append ONE record per decision to the **project-level** learning-loop store at the resolved `$DECISIONS` path (NOT the temp `$SESSION_DIR`). Use the bundled helper:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/review-code/decisions.py" \
-  append .claude/review-decisions.json '<record-json>'
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/decisions.py" \
+  append "$DECISIONS" '<record-json>'
 ```
 
 `<record-json>` is `{"dimension": "<finding dimension>", "category": "<finding taxonomy/topic>", "action": "skip"|"guidance"|"fix"}`:
@@ -600,11 +617,11 @@ If the user declines or ignores it, record the dismissal (see "Recording a dismi
 After the staleness nudge, analyze the decision store for a repeated signal:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/review-code/decisions.py" \
-  analyze .claude/review-decisions.json --nudge-ack <comma-separated profile nudge-ack hashes>
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/decisions.py" \
+  analyze "$DECISIONS" --nudge-ack <comma-separated profile nudge-ack hashes>
 ```
 
-Pass the profile's current `nudge-ack` map keys (read from `.claude/review-profile.md`'s provenance block) as the comma-separated `--nudge-ack` list so an already-dismissed proposal does not re-fire. If the result's `proposal` is non-null, present it via **ONE** `AskUserQuestion` (lead with `proposal.text`; the proposal names a `target` of `profile` or `CLAUDE.md`):
+Pass the profile's current `nudge-ack` map keys (read from the resolved profile (`$PROFILE`)'s provenance block) as the comma-separated `--nudge-ack` list so an already-dismissed proposal does not re-fire. If the result's `proposal` is non-null, present it via **ONE** `AskUserQuestion` (lead with `proposal.text`; the proposal names a `target` of `profile` or `CLAUDE.md`):
 - **Apply to `<target>`** — apply the proposed calibration/convention edit to the named target.
 - **Edit then apply** — open a free-text edit, then apply the edited version.
 - **Dismiss** — do not apply; record the dismissal using `proposal.signal_hash` (see below).
@@ -617,7 +634,7 @@ If the loaded profile's `status:` is `provisional` AND this run is interactive (
 
 > This project's review profile was auto-generated (provisional) and hasn't been confirmed. Confirm it now?
 
-- **Confirm (mark stable)** — flip the profile's provenance `status: provisional` → `status: stable` in `.claude/review-profile.md` (a small, user-approved provenance write; bump `updated:`). Nothing else changes.
+- **Confirm (mark stable)** — flip the profile's provenance `status: provisional` → `status: stable` in the resolved profile (`$PROFILE`) (a small, user-approved provenance write; bump `updated:`). Nothing else changes.
 - **Refresh via review-init** — point the user at `/review-crew:review-init` (its reconcile re-detects + can flip status) and do not change the profile now.
 - **Keep provisional** — record a dismissal (see "Recording a dismissal") using the constant provisional-confirm signal hash so this does not re-ask until the profile changes.
 
@@ -625,7 +642,7 @@ Skip this entirely when the run is **headless/non-interactive** (no human to ans
 
 ### Recording a dismissal (shared)
 
-The staleness nudge (above), the learning-loop proposal, and the provisional-profile confirmation share one dismissal mechanism: **write the relevant `signal_hash` into the profile's `nudge-ack` map** in `.claude/review-profile.md`'s provenance block, so the same signal does not re-fire until it changes. The map is `nudge-ack: {<hash>: true, ...}` on the provenance line; add the hash as a new key (the staleness nudge uses `DOCTOR_JSON.signal_hash`; the proposal uses `proposal.signal_hash`; the provisional-profile confirmation's **Keep provisional** uses a **constant signal** — the literal `provisional-confirm` — so that one suppresses re-asking until the profile itself changes, since a reconcile/regenerate that flips or refreshes `status` clears or supersedes it). This is the ONLY write any of these nudges makes to the profile, and only on dismissal — it is not a calibration edit.
+The staleness nudge (above), the learning-loop proposal, and the provisional-profile confirmation share one dismissal mechanism: **write the relevant `signal_hash` into the profile's `nudge-ack` map** in the resolved profile (`$PROFILE`)'s provenance block, so the same signal does not re-fire until it changes. The map is `nudge-ack: {<hash>: true, ...}` on the provenance line; add the hash as a new key (the staleness nudge uses `DOCTOR_JSON.signal_hash`; the proposal uses `proposal.signal_hash`; the provisional-profile confirmation's **Keep provisional** uses a **constant signal** — the literal `provisional-confirm` — so that one suppresses re-asking until the profile itself changes, since a reconcile/regenerate that flips or refreshes `status` clears or supersedes it). This is the ONLY write any of these nudges makes to the profile, and only on dismissal — it is not a calibration edit.
 
 ## Verification Rules (for subagents)
 

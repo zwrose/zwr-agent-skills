@@ -34,7 +34,7 @@ intended behavior (see **Prose fixes applied**, end of file).
 Shared abbreviations: **R-CODE** = `skills/review-code/SKILL.md`, **R-PLAN** =
 `skills/review-plan/SKILL.md`, **R-DEBT** = `skills/audit-debt/SKILL.md`,
 **R-INIT** = `skills/review-init/SKILL.md`, **BASE** = `rubric/review-base.md`,
-**DOCTOR** = `skills/review-code/repo_doctor.py`.
+**DOCTOR** = `lib/repo_doctor.py`.
 
 ---
 
@@ -42,8 +42,8 @@ Shared abbreviations: **R-CODE** = `skills/review-code/SKILL.md`, **R-PLAN** =
 
 | # | Trigger | Expected behavior | Implements (file:section) | Verified | Fix |
 |---|---------|-------------------|----------------------------|----------|-----|
-| P1 | A review skill runs and `.claude/review-profile.md` is **absent** | Setup runs review-init's **create procedure inline** (review-init Steps 1–4: detect → interview → seed patterns → write the profile), then proceeds with the review. Does NOT invoke another skill mid-run; does NOT run staleness/reconcile/learning-loop. | R-CODE §1 Setup "Profile bootstrap"; R-PLAN §1 Setup "Profile bootstrap"; R-DEBT §1 Sweep Prep "Profile bootstrap" | yes | already correct |
-| P2 | A review skill runs and the profile is **present** | The deterministic **staleness self-check** (`repo_doctor.py`) runs as the first action, captured into `DOCTOR_JSON`; the bootstrap is skipped. The check is guarded `if [ -f .claude/review-profile.md ]` so it runs **only** when a profile exists. | R-CODE §1 Setup "Staleness self-check (first action)"; R-PLAN §1; R-DEBT §1 | yes | already correct |
+| P1 | A review skill runs and the resolver returns **LOCATION == none** (profile absent at the resolved path) | Setup runs review-init's **create procedure inline** (review-init Steps 1–4: detect → interview → seed patterns → write the profile), then proceeds with the review. Does NOT invoke another skill mid-run; does NOT run staleness/reconcile/learning-loop. | R-CODE §1 Setup "Profile bootstrap"; R-PLAN §1 Setup "Profile bootstrap"; R-DEBT §1 Sweep Prep "Profile bootstrap" | yes | already correct |
+| P2 | A review skill runs and the profile is **present** | The deterministic **staleness self-check** (`repo_doctor.py`) runs as the first action, captured into `DOCTOR_JSON`; the bootstrap is skipped. The check is guarded on the resolver's **EXISTS == true** so it runs **only** when a profile exists at the resolved location. | R-CODE §1 Setup "Staleness self-check (first action)"; R-PLAN §1; R-DEBT §1 | yes | already correct |
 | P3 | Profile present but the **staleness check itself can't read it** (`readable: false`) | Tell the user "profile unreadable — re-run `/review-crew:review-init`" and **continue** (do not crash, do not block). `repo_doctor.py` fails soft (always exit 0). | R-CODE §1 Setup; R-PLAN §1; R-DEBT §1; DOCTOR module docstring ("FAIL SOFT … NEVER crash") | yes | already correct |
 | P4 | No profile **and** the run is fully headless / non-interactive | The inline bootstrap writes a `status: provisional` profile from detected defaults with the **STRICT** threat model, then proceeds. | R-CODE §1 Setup "Profile bootstrap" (headless branch); R-PLAN §1; R-DEBT §1; R-INIT §3 "Headless / non-interactive" | yes | already correct |
 

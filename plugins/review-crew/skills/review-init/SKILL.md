@@ -53,8 +53,33 @@ python3 -c "import json;print(json.load(open('${CLAUDE_PLUGIN_ROOT}/.claude-plug
 
 ## Step 2 — Choose mode
 
-If `.claude/review-profile.md` exists → **Reconcile** (Step 5). Otherwise →
-**Create** (Steps 3–4).
+Resolve where the profile lives (it may be in-repo under `./.claude/` or in the
+global per-repo store). `review_store.py resolve` returns the resolved path, or
+`location: none` when no profile exists yet:
+
+```bash
+RES=$(python3 "${CLAUDE_PLUGIN_ROOT}/lib/review_store.py" resolve --kind profile) \
+  || RES='{"location":"none","exists":false,"path":null}'
+LOCATION=$(printf '%s' "$RES" | jq -r .location)
+PROFILE=$(printf '%s' "$RES" | jq -r '.path // empty')
+```
+
+If `$LOCATION` is not `none` (a profile resolved at `$PROFILE`) → **Reconcile**
+(Step 5). Otherwise (`$LOCATION` is `none`) → **Create** (Steps 3–4); decide the
+storage location and mint the path before writing:
+
+```bash
+if [ "$LOCATION" = "none" ]; then
+  INTERACTIVE=true   # the orchestrator sets this to false on a headless/non-interactive run (no human to answer), so decide-location returns "global" deterministically instead of "ask"
+  LOC=$(python3 "${CLAUDE_PLUGIN_ROOT}/lib/review_store.py" decide-location --interactive "$INTERACTIVE")
+  # If LOC is "ask", present the in-repo vs global AskUserQuestion, set LOC.
+  PROFILE=$(python3 "${CLAUDE_PLUGIN_ROOT}/lib/review_store.py" create --kind profile --location "$LOC")
+fi
+```
+
+When `decide-location` returns `ask`, present the in-repo-vs-global
+`AskUserQuestion` (per the spec's *Halt-and-ask init flow*) and use the answer as
+`$LOC`. The minted `$PROFILE` is the path Step 4 writes to.
 
 ## Step 3 — Create: CLAUDE.md-aware interview (full, inline, tight)
 
@@ -93,8 +118,10 @@ grep -rnE "userId|ownerId|tenantId" "$ROOT"/src 2>/dev/null | head -1           
 ```
 
 Record only patterns you actually found (omit the section if none). Then write
-`.claude/review-profile.md` using the **template below**, and `AskUserQuestion`
-whether to commit it (`git add .claude/review-profile.md && git commit`).
+the profile to the resolved `$PROFILE` (from Step 2) using the **template below**.
+Only when `$PROFILE` is in-repo (under `./.claude/`) `AskUserQuestion` whether to
+commit it (`git add "$PROFILE" && git commit`); a global-store profile lives
+outside the working tree and is not committed.
 
 ### Profile template
 
