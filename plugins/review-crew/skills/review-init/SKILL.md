@@ -59,7 +59,7 @@ global per-repo store). `review_store.py resolve` returns the resolved path, or
 
 ```bash
 RES=$(python3 "${CLAUDE_PLUGIN_ROOT}/lib/review_store.py" resolve --kind profile) \
-  || RES='{"location":"none","path":null}'
+  || RES='{"location":"none","exists":false,"path":null}'
 LOCATION=$(printf '%s' "$RES" | jq -r .location)
 PROFILE=$(printf '%s' "$RES" | jq -r '.path // empty')
 ```

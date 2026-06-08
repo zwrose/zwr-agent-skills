@@ -293,7 +293,12 @@ def test_cli_unknown_command_exits_nonzero(tmp_path):
     assert out.returncode != 0
 
 
-def test_concurrency_disjoint_pointers_do_not_clobber(tmp_path):
+def test_disjoint_key_writes_dont_clobber(tmp_path):
+    # Concurrency safety is structural, not lock-based: distinct keys map to
+    # distinct files, each written with an atomic os.replace, so two writers
+    # never share a mutable file. This asserts that disjointness property (the
+    # thing that makes concurrent writes safe); true parallelism isn't
+    # deterministically testable.
     root = str(tmp_path / "store")
     rs.write_pointer(root, "hashA", "entryA")
     rs.write_pointer(root, "hashB", "entryB")  # different repo, disjoint file
@@ -319,10 +324,8 @@ def test_gitdir_uses_pre_231_fallback(tmp_path, monkeypatch):
     real = rs._run_git
 
     def fake(cwd, *a):
-        if a[:2] == ("rev-parse",) + ("--path-format=absolute",):
-            return None  # simulate git < 2.31 not supporting the flag
         if a == ("rev-parse", "--path-format=absolute", "--git-common-dir"):
-            return None
+            return None  # simulate git < 2.31 not supporting the flag
         if a == ("rev-parse", "--absolute-git-dir"):
             calls["n"] += 1
             return real(cwd, *a)

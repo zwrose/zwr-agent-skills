@@ -164,9 +164,15 @@ def resolve_global(cwd, root):
     if entry_id is None:
         return None
 
-    if p_remote and p_gitdir and p_remote != p_gitdir:
+    # Warn only on a GENUINE conflict: both keys point at live-but-different
+    # entries. A mere dangling pointer (one entry dir gone) is routine self-heal,
+    # not a conflict, so it stays quiet.
+    if (p_remote and p_gitdir and p_remote != p_gitdir
+            and os.path.isdir(os.path.join(root, "entries", p_remote))
+            and os.path.isdir(os.path.join(root, "entries", p_gitdir))):
         sys.stderr.write(
-            "review_store: key disagreement; preferring the live entry\n")
+            "review_store: key disagreement — both keys point at live but "
+            "different entries; preferring the remote-keyed entry\n")
 
     # Self-heal: point both available keys at the chosen live entry. Only writes
     # when a pointer is missing or stale, so we never re-point at a dead entry.
