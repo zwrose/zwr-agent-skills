@@ -387,3 +387,66 @@ def unlock(paths):
     lock.release(lp)
     return {"ok": True, "command": "unlock", "released": released,
             "holder": holder}
+
+
+def _arg(args, flag, default=None):
+    if flag in args:
+        i = args.index(flag)
+        if i + 1 < len(args) and not args[i + 1].startswith("--"):
+            return args[i + 1]
+    return default
+
+
+def _resolve_paths():
+    res = store.resolve(os.getcwd(), store.store_root())
+    if res["location"] == "none":
+        raise EngineError("no test-pilot profile resolves here; run "
+                          "test-pilot-init first")
+    return {"state_dir": res["state_dir"],
+            "manifests_dir": res["manifests_dir"],
+            "blocks_dir": res["blocks_dir"],
+            "repo_root": os.getcwd()}, res
+
+
+def main(argv):
+    args = argv[1:]
+    cmd = args[0] if args else None
+    as_json = "--json" in args
+    if cmd not in ("apply", "clean", "status", "unlock"):
+        sys.stderr.write("Usage: engine.py apply|clean|status|unlock "
+                         "[--branch B] [--slot S] [--dry-run] "
+                         "[--allow-protected] [--json]\n")
+        return 2
+    try:
+        paths, res = _resolve_paths()
+        if cmd in ("apply", "clean"):
+            branch = _arg(args, "--branch")
+            if not branch:
+                raise EngineError(f"{cmd} requires --branch")
+            slot = _arg(args, "--slot")
+            if cmd == "apply":
+                profile_cfg = load_profile_config(res["profile"])
+                out = apply_manifest(paths, branch, slot, profile_cfg,
+                                     allow_protected="--allow-protected" in args,
+                                     dry_run="--dry-run" in args)
+            else:
+                out = clean_manifest(paths, branch, slot)
+        elif cmd == "status":
+            out = status(paths)
+        else:
+            out = unlock(paths)
+        sys.stdout.write(json.dumps(out) + "\n" if as_json
+                         else json.dumps(out, indent=2) + "\n")
+        return 0
+    except (EngineError, state.StateError, blocks.BlockError) as exc:
+        payload = getattr(exc, "payload", {"error": str(exc)})
+        err = {"ok": False, "command": cmd,
+               "error": payload.get("error", str(exc)),
+               "block": payload.get("block"),
+               "scenarioId": payload.get("scenarioId")}
+        sys.stdout.write(json.dumps(err) + "\n")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
