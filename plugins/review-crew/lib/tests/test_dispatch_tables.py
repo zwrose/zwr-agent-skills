@@ -43,7 +43,7 @@ def _table_rows(rel):
 
 def _rubric_dimensions():
     text = _read(os.path.join("rubric", "review-base.md"))
-    m = re.search(r"\*\*Dimensions\*\*.*?:\s*((?:`[A-Za-z-]+`(?:,\s*)?)+)", text, re.S)
+    m = re.search(r"\*\*Dimensions\*\*.*?:\s*(`[A-Za-z-]+`(?:,\s*`[A-Za-z-]+`)*)", text, re.S)
     assert m, "rubric Dimensions declaration not found"
     return set(re.findall(r"`([A-Za-z-]+)`", m.group(1)))
 

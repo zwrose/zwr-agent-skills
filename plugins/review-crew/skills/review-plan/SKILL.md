@@ -37,7 +37,7 @@ SESSION_DIR=$(mktemp -d /tmp/review-plan-XXXXXXXX)
 | `$SESSION_DIR/findings-code.json`         | code agent   | Code-reviewer findings array                                   |
 | `$SESSION_DIR/findings-security.json`     | sec agent    | Security-reviewer findings array                               |
 | `$SESSION_DIR/findings-test.json`         | test agent   | Test-reviewer findings array                                   |
-| `$SESSION_DIR/findings-premortem.json`    | premortem agent | Premortem-reviewer (Failure-Mode) findings array            |
+| `$SESSION_DIR/findings-premortem.json`    | premortem agent | Premortem-reviewer (Failure-Mode) findings array               |
 | `$SESSION_DIR/compiled.json`              | orchestrator | Deduplicated, verified findings + summary + verdict            |
 
 ## Workflow
