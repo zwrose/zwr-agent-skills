@@ -159,3 +159,53 @@ def test_unlock_releases_stale_lock(tmp_path):
     r = engine.unlock(paths)
     assert r["released"] is True
     assert not os.path.exists(os.path.join(paths["state_dir"], "engine.lock"))
+
+
+# Fix 1 regression: state must be loaded under the lock.
+def test_state_is_read_under_the_lock(tmp_path, monkeypatch):
+    """Regression: a concurrent applier must not snapshot state pre-lock."""
+    paths = _paths(tmp_path)
+    _write_manifest(paths, _manifest([_sc("a", str(tmp_path))]))
+    real_load = engine.state.load_state
+    seen = {}
+
+    def spying_load(path):
+        seen["lock_exists_at_load"] = os.path.exists(
+            os.path.join(paths["state_dir"], "engine.lock"))
+        return real_load(path)
+
+    monkeypatch.setattr(engine.state, "load_state", spying_load)
+    engine.apply_manifest(paths, "feat/x", None, {}, allow_protected=False)
+    assert seen["lock_exists_at_load"] is True
+
+
+# Fix 2: clean_manifest must refuse protected targets.
+def test_clean_refuses_protected_targets_from_state(tmp_path, capsys):
+    paths = _paths(tmp_path)
+    m = _manifest([_sc("a", str(tmp_path))])
+    m["scenarios"][0]["config"]["targets"] = ["main"]
+    _write_manifest(paths, m)
+    cfg = {"protectedTargets": ["main"]}
+    engine.apply_manifest(paths, "feat/x", None, cfg, allow_protected=True)
+    capsys.readouterr()
+    with pytest.raises(engine.EngineError) as e:
+        engine.clean_manifest(paths, "feat/x", None, cfg)
+    assert "protected" in str(e.value)
+    r = engine.clean_manifest(paths, "feat/x", None, cfg, allow_protected=True)
+    assert r["cleaned"] == ["a"]
+    assert "allow-protected" in capsys.readouterr().err.lower()
+
+
+# Fix 2: apply_manifest must gate removed scenarios being cleaned.
+def test_apply_gates_removed_scenarios_being_cleaned(tmp_path):
+    paths = _paths(tmp_path)
+    m = _manifest([_sc("a", str(tmp_path)), _sc("b", str(tmp_path))])
+    m["scenarios"][1]["config"]["targets"] = ["main"]
+    _write_manifest(paths, m)
+    cfg = {"protectedTargets": ["main"]}
+    engine.apply_manifest(paths, "feat/x", None, cfg, allow_protected=True)
+    # remove the protected scenario from the manifest -> it lands in to_clean
+    _write_manifest(paths, _manifest([_sc("a", str(tmp_path))]))
+    with pytest.raises(engine.EngineError) as e:
+        engine.apply_manifest(paths, "feat/x", None, cfg, allow_protected=False)
+    assert "protected" in str(e.value)
