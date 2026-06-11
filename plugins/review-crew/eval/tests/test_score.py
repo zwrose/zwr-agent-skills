@@ -1,5 +1,6 @@
 import json
 
+import pytest
 import score
 
 
@@ -288,3 +289,84 @@ def test_smoke_real_refactor_fixture(tmp_path):
     assert r["recall"]["total"] == 5
     assert r["recall"]["matched"] == 5
     assert r["precision"]["traps_flagged"] == 0
+
+
+# ---- Failure-Mode whole-flow classes (premortem-reviewer) ------------------
+
+
+@pytest.mark.parametrize("taxonomy", [
+    "concurrency/race",
+    "partial-failure",
+    "dependency-failure",
+    "resource-exhaustion",
+    "migration-rollback",
+])
+def test_failure_mode_seed_matches_at_flow_distance(tmp_path, taxonomy):
+    # Whole-flow classes are function-scoped: a correct finding citing a
+    # different line of the same flow (10 lines off) must still match.
+    expected = {"seeds": [{"dimension": "Failure-Mode", "taxonomy": taxonomy,
+                           "file": "src/app.ts",
+                           "lineHint": "export function getNote(id) {"}],  # line 3
+                "traps": []}
+    fdir = _make_fixture(tmp_path, expected, SYNTH_DIFF)
+    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 13}]
+    r = score.score_fixture(fdir, findings)
+    assert r["recall"]["matched"] == 1
+
+
+def test_detectability_stays_line_scoped(tmp_path):
+    # detectability (and assumption-violation) keep the exact +/-2 default.
+    expected = {"seeds": [{"dimension": "Failure-Mode", "taxonomy": "detectability",
+                           "file": "src/app.ts",
+                           "lineHint": "export function getNote(id) {"}],  # line 3
+                "traps": []}
+    fdir = _make_fixture(tmp_path, expected, SYNTH_DIFF)
+    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 7}]  # +4 off
+    r = score.score_fixture(fdir, findings)
+    assert r["recall"]["matched"] == 0
+
+
+@pytest.mark.parametrize("reason_token", [
+    "profile-excluded-race",
+    "retry-wrapped",
+    "framework-transaction",
+])
+def test_failure_mode_trap_reason_is_function_scoped(tmp_path, reason_token):
+    # A bait trap whose whyNotFlagged carries a Failure-Mode scope token uses
+    # the +/-15 window: a finding 10 lines off still counts as a trap hit.
+    expected = {"seeds": [],
+                "traps": [{"file": "src/app.ts",
+                           "lineHint": "export function getNote(id) {",  # line 3
+                           "whyNotFlagged": reason_token + " — guarded, see CLAUDE.md"}]}
+    fdir = _make_fixture(tmp_path, expected, SYNTH_DIFF)
+    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 13}]
+    r = score.score_fixture(fdir, findings)
+    assert r["precision"]["traps_flagged"] == 1
+
+
+def test_token_less_trap_reason_stays_line_scoped(tmp_path):
+    # A prose reason with NO scope token silently degrades to +/-2 — the spec
+    # requires bait reasons to carry their token; this test pins the behavior
+    # that makes that requirement load-bearing.
+    expected = {"seeds": [],
+                "traps": [{"file": "src/app.ts",
+                           "lineHint": "export function getNote(id) {",  # line 3
+                           "whyNotFlagged": "this is fine because reasons"}]}
+    fdir = _make_fixture(tmp_path, expected, SYNTH_DIFF)
+    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 13}]
+    r = score.score_fixture(fdir, findings)
+    assert r["precision"]["traps_flagged"] == 0
+
+
+def test_finding_outside_all_windows_lands_net_new(tmp_path):
+    # Negative boundary: 16+ lines from a function-scoped trap is outside the
+    # +/-15 window — the FP lands in net_new, NOT traps.
+    expected = {"seeds": [],
+                "traps": [{"file": "src/app.ts",
+                           "lineHint": "import { db } from \"./db\";",  # line 1
+                           "whyNotFlagged": "framework-transaction — atomic"}]}
+    fdir = _make_fixture(tmp_path, expected, SYNTH_DIFF)
+    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 17}]  # 16 off
+    r = score.score_fixture(fdir, findings)
+    assert r["precision"]["traps_flagged"] == 0
+    assert len(r["net_new"]) == 1
