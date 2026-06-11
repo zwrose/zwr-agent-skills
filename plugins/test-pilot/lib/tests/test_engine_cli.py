@@ -134,3 +134,14 @@ def test_validate_plan_dangling_scenario_id(tmp_path):
     out = json.loads(r.stdout)
     assert out["ok"] is False
     assert "missing" in out["error"]
+
+
+# r2-test-test-003: invalid slot must produce structured JSON error (exit 1).
+def test_invalid_slot_produces_json_error(tmp_path):
+    repo, env, _ = _setup_repo(tmp_path)
+    r = _cli(repo, env, "apply", "--branch", "feat/x", "--slot", "bad~slot")
+    assert r.returncode == 1
+    out = json.loads(r.stdout)
+    assert out["ok"] is False
+    assert out["command"] == "apply"
+    assert "slot" in out["error"].lower()

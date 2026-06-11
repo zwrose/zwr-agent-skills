@@ -79,6 +79,20 @@ def test_scrub_strips_auth_material():
     assert "pass" not in s("postgres://user:pass@localhost/mydb")
 
 
+def test_scrub_strips_json_colon_form_secrets():
+    s = pc.scrub
+    # Double-quoted key and value (standard JSON)
+    assert "[REDACTED]" in s('{"access_token": "xyzzy12345"}')
+    assert "xyzzy12345" not in s('{"access_token": "xyzzy12345"}')
+    assert "[REDACTED]" in s("{'client_secret': 'abc123'}")
+    assert "abc123" not in s("{'client_secret': 'abc123'}")
+    assert "[REDACTED]" in s('"password": "hunter2"')
+    assert "hunter2" not in s('"password": "hunter2"')
+    # session_id colon form
+    assert "[REDACTED]" in s('"session_id": "sess-abc"')
+    assert "sess-abc" not in s('"session_id": "sess-abc"')
+
+
 def test_scrub_negative_benign_text_unchanged():
     benign = ("Console error: TypeError: cannot read 'title' of undefined\n"
               "POST /api/todos returned 500\n"

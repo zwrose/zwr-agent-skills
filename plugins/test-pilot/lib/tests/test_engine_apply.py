@@ -207,15 +207,62 @@ def test_clean_refuses_protected_targets_from_state(tmp_path, capsys):
 
 
 # Fix 2: apply_manifest must gate removed scenarios being cleaned.
-def test_apply_gates_removed_scenarios_being_cleaned(tmp_path):
+def test_apply_gates_removed_scenarios_being_cleaned(tmp_path, capsys):
     paths = _paths(tmp_path)
     m = _manifest([_sc("a", str(tmp_path)), _sc("b", str(tmp_path))])
     m["scenarios"][1]["config"]["targets"] = ["main"]
     _write_manifest(paths, m)
     cfg = {"protectedTargets": ["main"]}
     engine.apply_manifest(paths, "feat/x", None, cfg, allow_protected=True)
+    capsys.readouterr()
     # remove the protected scenario from the manifest -> it lands in to_clean
     _write_manifest(paths, _manifest([_sc("a", str(tmp_path))]))
     with pytest.raises(engine.EngineError) as e:
         engine.apply_manifest(paths, "feat/x", None, cfg, allow_protected=False)
     assert "protected" in str(e.value)
+    # allow_protected=True -> runs through, warning on stderr
+    r = engine.apply_manifest(paths, "feat/x", None, cfg, allow_protected=True)
+    assert r["cleaned"] == ["b"]
+    assert "cleaning protected targets" in capsys.readouterr().err
+
+
+# r2-test-test-001: dependsOn-only change must dirty the scenario (and dependents).
+def test_depends_on_only_change_dirties_scenario(tmp_path):
+    paths = _paths(tmp_path)
+    # Initial apply: a and b, b has no deps
+    m1 = _manifest([_sc("a", str(tmp_path)), _sc("b", str(tmp_path))])
+    _write_manifest(paths, m1)
+    engine.apply_manifest(paths, "feat/x", None, {}, allow_protected=False)
+    # Re-apply with b's dependsOn set to ["a"], IDENTICAL config
+    m2 = _manifest([_sc("a", str(tmp_path)), _sc("b", str(tmp_path), deps=["a"])])
+    _write_manifest(paths, m2)
+    r = engine.apply_manifest(paths, "feat/x", None, {}, allow_protected=False)
+    assert r["cleaned"] == ["b"]
+    assert "b" in r["applied"]
+    assert "a" not in r["cleaned"]
+
+
+# r2-test-test-004: status drift must be non-empty after a config change (no re-apply).
+def test_status_drift_non_empty_after_config_change(tmp_path):
+    paths = _paths(tmp_path)
+    m = _manifest([_sc("a", str(tmp_path))])
+    _write_manifest(paths, m)
+    engine.apply_manifest(paths, "feat/x", None, {}, allow_protected=False)
+    # Overwrite the manifest with a changed config — do NOT re-apply
+    m2 = _manifest([_sc("a", str(tmp_path), payload="CHANGED")])
+    _write_manifest(paths, m2)
+    s = engine.status(paths)
+    assert s["entries"][0]["drift"] == ["a"]
+
+
+# r2-test-test-004 (continued): status drift also fires on dependsOn-only change.
+def test_status_drift_non_empty_after_depends_on_change(tmp_path):
+    paths = _paths(tmp_path)
+    m = _manifest([_sc("a", str(tmp_path)), _sc("b", str(tmp_path))])
+    _write_manifest(paths, m)
+    engine.apply_manifest(paths, "feat/x", None, {}, allow_protected=False)
+    # Change only b's dependsOn — do NOT re-apply
+    m2 = _manifest([_sc("a", str(tmp_path)), _sc("b", str(tmp_path), deps=["a"])])
+    _write_manifest(paths, m2)
+    s = engine.status(paths)
+    assert "b" in s["entries"][0]["drift"]

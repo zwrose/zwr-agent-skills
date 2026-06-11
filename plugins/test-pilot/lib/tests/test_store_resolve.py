@@ -101,6 +101,39 @@ def test_resolve_global_self_heals_dangling_remote_pointer(tmp_path):
     assert store.read_pointer(root, ident["remote_hash"]) == live_entry
 
 
+# r2-test-test-002: create() reuses an existing live entry for a second clone
+# with the same remote URL (distinct gitdir).
+def test_create_reuses_entry_for_second_clone(tmp_path):
+    remote = "git@github.com:org/shared-repo.git"
+    clone_a = _init_repo(tmp_path / "clone_a", remote=remote)
+    clone_b = _init_repo(tmp_path / "clone_b", remote=remote)
+    root = str(tmp_path / "store")
+    c1 = store.create(clone_a, "global", root)
+    c2 = store.create(clone_b, "global", root)
+    # Both clones must resolve to the same entry (reuse via remote pointer).
+    assert c2["entry_id"] == c1["entry_id"]
+    # Both gitdir pointers must now point at that entry.
+    ident_a = store.derive_identifiers(clone_a)
+    ident_b = store.derive_identifiers(clone_b)
+    assert store.read_pointer(root, ident_a["gitdir_hash"]) == c1["entry_id"]
+    assert store.read_pointer(root, ident_b["gitdir_hash"]) == c1["entry_id"]
+
+
+# r2-test-test-005: get_repo_root — git repo returns toplevel; non-git dir returns itself.
+def test_get_repo_root_in_git_repo(tmp_path):
+    repo = _init_repo(tmp_path / "repo")
+    sub = os.path.join(repo, "sub", "dir")
+    os.makedirs(sub)
+    assert store.get_repo_root(sub) == os.path.realpath(repo)
+
+
+def test_get_repo_root_non_git_fallback(tmp_path):
+    plain = str(tmp_path / "plain")
+    os.makedirs(plain)
+    result = store.get_repo_root(plain)
+    assert result == os.path.realpath(plain)
+
+
 def test_cli_key_and_resolve(tmp_path):
     repo = _init_repo(tmp_path / "repo")
     env = dict(os.environ, TEST_PILOT_STORE_ROOT=str(tmp_path / "store"))

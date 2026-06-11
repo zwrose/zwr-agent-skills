@@ -76,7 +76,13 @@ def load_manifest(path):
             raise EngineError(
                 f"scenario {sc['id']!r} needs a `config` object",
                 scenarioId=sc["id"])
-        for dep in sc.get("dependsOn", []):
+        deps_val = sc.get("dependsOn", [])
+        if not isinstance(deps_val, list) or not all(
+                isinstance(d, str) for d in deps_val):
+            raise EngineError(
+                f"scenario {sc['id']!r} `dependsOn` must be a list of strings",
+                scenarioId=sc["id"])
+        for dep in deps_val:
             if dep not in id_set:
                 raise EngineError(
                     f"scenario {sc['id']!r} dependsOn unknown scenario "
@@ -121,7 +127,13 @@ def load_plan_record(path, manifest):
                 raise EngineError(
                     f"plan record {path}: step missing `{f}`",
                     step=step.get("id"))
-        missing = [s for s in step.get("scenarioIds", []) if s not in ids]
+        sids_val = step.get("scenarioIds", [])
+        if not isinstance(sids_val, list) or not all(
+                isinstance(s, str) for s in sids_val):
+            raise EngineError(
+                f"plan record {path}: step {step['id']!r} `scenarioIds` must "
+                f"be a list of strings", step=step["id"])
+        missing = [s for s in sids_val if s not in ids]
         if missing:
             raise EngineError(
                 f"plan record {path}: step {step['id']!r} references missing "
@@ -186,32 +198,34 @@ def scenario_hash(sc):
                         "dependsOn": sorted(sc.get("dependsOn", []))})
 
 
+def _warn_protected(verb, hits):
+    """Emit the standard --ALLOW-PROTECTED warning for a list of hits."""
+    sys.stderr.write(
+        f"⚠ --ALLOW-PROTECTED: {verb} protected targets: "
+        + ", ".join(f"{t} (pattern {p}, scenario {s})"
+                    for s, t, p in hits)
+        + "\n")
+
+
 def _gate_or_raise(hits, allow_protected, clean_hits=None):
     """Raise EngineError if hits and not allow_protected; otherwise warn on
     clean_hits (when allow_protected). clean_hits defaults to hits."""
-    all_hits = hits
-    if not all_hits and not allow_protected:
-        return
-    if all_hits and not allow_protected:
-        sid, target, pat = all_hits[0]
+    if clean_hits is None:
+        clean_hits = hits
+    if hits and not allow_protected:
+        sid, target, pat = hits[0]
         raise EngineError(
             f"protected-target refusal: scenario {sid!r} declares target "
             f"{target!r} matching protected pattern {pat!r}. Pass "
             f"--allow-protected ONLY if the user explicitly instructed it.",
             scenarioId=sid, block=None)
     if allow_protected and clean_hits:
-        sys.stderr.write(
-            "⚠ --ALLOW-PROTECTED: cleaning protected targets: "
-            + ", ".join(f"{t} (pattern {p}, scenario {s})"
-                        for s, t, p in clean_hits)
-            + "\n")
+        _warn_protected("cleaning", clean_hits)
 
 
-def _plan_and_gate(manifest, mstate, project_blocks, profile_cfg, allow_protected,
-                   branch=None, slot=None):
+def _plan_and_gate(manifest, mstate, project_blocks, profile_cfg, allow_protected):
     """Plan changes and run gate on both new targets and scheduled-clean targets.
     Returns (to_clean, to_apply, skipped, all_hits)."""
-    key_or_none = mstate.get("branch"), mstate.get("slot")
     to_clean, to_apply, skipped = plan_changes(manifest, mstate)
     clean_pseudo = [{"id": sid, "block": mstate["scenarios"][sid]["block"],
                      "config": mstate["scenarios"][sid]["config"]}
@@ -221,25 +235,9 @@ def _plan_and_gate(manifest, mstate, project_blocks, profile_cfg, allow_protecte
     scenarios_hits = gate_violations(manifest["scenarios"], project_blocks,
                                      (profile_cfg or {}).get("protectedTargets"))
     all_hits = scenarios_hits + [h for h in clean_hits if h not in scenarios_hits]
-    if all_hits and not allow_protected:
-        sid, target, pat = all_hits[0]
-        raise EngineError(
-            f"protected-target refusal: scenario {sid!r} declares target "
-            f"{target!r} matching protected pattern {pat!r}. Pass "
-            f"--allow-protected ONLY if the user explicitly instructed it.",
-            scenarioId=sid, block=None)
+    _gate_or_raise(all_hits, allow_protected, clean_hits=clean_hits)
     if allow_protected and scenarios_hits:
-        sys.stderr.write(
-            "⚠ --ALLOW-PROTECTED: writing to protected targets: "
-            + ", ".join(f"{t} (pattern {p}, scenario {s})"
-                        for s, t, p in scenarios_hits)
-            + "\n")
-    if allow_protected and clean_hits:
-        sys.stderr.write(
-            "⚠ --ALLOW-PROTECTED: cleaning protected targets: "
-            + ", ".join(f"{t} (pattern {p}, scenario {s})"
-                        for s, t, p in clean_hits)
-            + "\n")
+        _warn_protected("writing to", scenarios_hits)
     return to_clean, to_apply, skipped, all_hits
 
 
@@ -440,6 +438,7 @@ def status(paths):
                 for sid, rec in mstate["scenarios"].items():
                     sc = desired.get(sid)
                     if (sc is None or rec["block"] != sc["block"]
+                            or rec.get("scenarioHash") != scenario_hash(sc)
                             or rec["configHash"] != config_hash(sc["config"])):
                         drift.append(sid)
             except EngineError as exc:

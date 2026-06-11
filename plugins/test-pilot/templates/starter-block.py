@@ -7,9 +7,9 @@ stdout. ctx carries repoRoot, baseUrl, apiBase, dbEnvVar.
 If this block needs third-party packages, add a PEP 723 header WITH PINNED
 VERSIONS and the engine will run it under `uv run`:
 
-# /// script
-# dependencies = ["requests==2.32.3"]
-# ///
+    # /// script
+    # dependencies = ["requests==2.32.3"]
+    # ///
 """
 
 BLOCK_META = {

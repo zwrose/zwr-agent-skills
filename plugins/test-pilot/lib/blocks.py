@@ -104,7 +104,7 @@ def block_targets(name, config, project_blocks):
 def has_pep723(path):
     try:
         with open(path) as fh:
-            return any(line.strip() == "# /// script" for line in fh)
+            return any(line.rstrip("\r\n") == "# /// script" for line in fh)
     except OSError:
         return False
 
@@ -152,7 +152,8 @@ def _run_command_block(op, config, ctx, runner):
     if op == "clean" and not argv:
         return {"skipped": "no cleanCommand"}
     if not isinstance(argv, list) or not argv:
-        raise BlockError("run-command requires config.command (argv array)",
+        field = "command" if op == "apply" else "cleanCommand"
+        raise BlockError(f"run-command requires config.{field} (argv array)",
                          block="run-command")
     try:
         proc = runner(argv, text=True, capture_output=True,

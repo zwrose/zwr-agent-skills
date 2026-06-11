@@ -101,3 +101,41 @@ def test_pep723_detection(tmp_path):
     plain = _write_block(tmp_path, "plain", GOOD)
     assert blocks.has_pep723(dep) is True
     assert blocks.has_pep723(plain) is False
+
+
+# r2-code-code-002: indented '# /// script' inside a docstring must NOT match.
+DOCSTRING_EXAMPLE = """\
+    \"\"\"Block with PEP 723 example in docstring (indented, NOT a real header).
+
+    If this block needs third-party packages, add a PEP 723 header:
+
+        # /// script
+        # dependencies = ["requests==2.32.3"]
+        # ///
+    \"\"\"
+
+    BLOCK_META = {
+        "description": "Plain block.",
+        "config": {},
+        "targets": ["http://localhost:3000"],
+    }
+
+    def apply(config, ctx):
+        return {}
+
+    def clean(result, ctx):
+        pass
+"""
+
+
+def test_pep723_indented_docstring_example_not_matched(tmp_path):
+    """A block whose docstring contains the indented example must NOT be detected
+    as PEP-723-bearing (the header must be at column 0)."""
+    p = _write_block(tmp_path, "with-docstring-example", DOCSTRING_EXAMPLE)
+    assert blocks.has_pep723(p) is False
+
+
+def test_pep723_real_header_at_column_0_matched(tmp_path):
+    """A real PEP 723 header starting at column 0 must be detected."""
+    p = _write_block(tmp_path, "real-pep723", DEP_BEARING)
+    assert blocks.has_pep723(p) is True

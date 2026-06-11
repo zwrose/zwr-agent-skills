@@ -103,3 +103,26 @@ def test_plan_record_valid(tmp_path):
     p = str(tmp_path / "feat%2Fx.plan.json")
     json.dump(rec, open(p, "w"))
     assert engine.load_plan_record(p, m)["steps"][0]["id"] == "s1"
+
+
+# r2-code-code-005: dependsOn must be a list of strings, not a string.
+def test_depends_on_string_instead_of_list_is_error(tmp_path):
+    bad = _manifest()
+    bad["scenarios"][1]["dependsOn"] = "a"  # string, not list
+    with pytest.raises(engine.EngineError) as e:
+        engine.load_manifest(_write(tmp_path, bad))
+    assert "dependsOn" in str(e.value)
+
+
+# r2-code-code-005: scenarioIds must be a list of strings, not a string.
+def test_scenario_ids_string_instead_of_list_is_error(tmp_path):
+    m = engine.load_manifest(_write(tmp_path, _manifest()))
+    rec = {"schemaVersion": 1, "branch": "feat/x", "slot": None,
+           "createdAt": "2026-06-11T00:00:00Z",
+           "steps": [{"id": "s1", "instruction": "x", "expected": "y",
+                      "scenarioIds": "a"}]}  # string, not list
+    p = str(tmp_path / "feat%2Fx.plan.json")
+    json.dump(rec, open(p, "w"))
+    with pytest.raises(engine.EngineError) as e:
+        engine.load_plan_record(p, m)
+    assert "scenarioIds" in str(e.value)

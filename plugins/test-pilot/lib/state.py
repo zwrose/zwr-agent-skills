@@ -10,7 +10,7 @@ Shape:
       "applyOrder": ["scenario-id", ...],          # apply sequence, for reverse clean
       "scenarios": {
         "<id>": {"block": "...", "config": {...}, "configHash": "...",
-                 "result": {...}, "appliedAt": "..."}
+                 "scenarioHash": "...", "result": {...}, "appliedAt": "..."}
       }
     }
   }
