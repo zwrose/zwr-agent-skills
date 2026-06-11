@@ -101,6 +101,24 @@ review-code-specific. `audit-debt` does read `## Verify` once — as a
 |---|---------|-------------------|----------------------------|----------|-----|
 | D4 | `audit-debt` reads `## Verify` for the doc-drift dimension | If `command:` is set, confirm its binary resolves on PATH (missing → Minor "verify command does not resolve"). If `mode: unverified` or `mode: review-only`, there is no command — **skip this check**. | R-DEBT §4 "Documentation drift" ("The profile's verify command resolves") | yes | already correct |
 
+## 7. Manual plan-time premortem scenario (live run)
+
+Unlike cells P1–F3 above (verified against prose), this scenario is a
+**live-run procedure** — an extension of, not a violation of, this file's
+prose-verification framing. It requires the **updated plugin installed
+locally** (a dev install / marketplace refresh carrying `premortem-reviewer`,
+review-crew ≥ 0.3.0 — not the cached older release), otherwise the run says
+nothing.
+
+| # | Trigger | Expected behavior | Verified |
+|---|---------|-------------------|----------|
+| M1 | Run `/review-crew:review-plan plugins/review-crew/eval/samples/gappy-plan.md` in a consumer repo with the updated plugin | The premortem-reviewer's findings include (a) ≥1 `assumption-violation` finding citing the sample plan's heading + line for the unstated single-writer assumption ("Dedupe is handled by reading the dirty flag"), and (b) a missing **Failure-handling statement** finding for the push-then-clear multi-step flow (step 2 succeeds, step 3 fails → notes re-push forever or are lost, nothing in the plan says which) | record date + outcome in `eval/RESULTS.md` |
+
+Procedure: run the command, read the round-1 chat findings (do NOT let the
+revise loop edit the sample — answer Skip for every revision so the sample
+stays gappy), confirm (a) and (b) appeared with plan-doc citations, then
+record the outcome in `eval/RESULTS.md`.
+
 ---
 
 ## Coverage summary
