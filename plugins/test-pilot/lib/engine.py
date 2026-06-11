@@ -163,3 +163,227 @@ def gate_violations(scenarios, project_blocks, protected_patterns):
                         or fnmatch.fnmatchcase(bare_name(target), pat)):
                     hits.append((sc["id"], target, pat))
     return hits
+
+
+def config_hash(config):
+    return hashlib.sha256(
+        json.dumps(config, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()[:16]
+
+
+def _now():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _state_path(paths):
+    return os.path.join(paths["state_dir"], "state.json")
+
+
+def _lock_path(paths):
+    return os.path.join(paths["state_dir"], "engine.lock")
+
+
+def _manifest_path(paths, key):
+    return os.path.join(paths["manifests_dir"], f"{key}.json")
+
+
+def _ctx(paths, profile_cfg):
+    return {"repoRoot": paths["repo_root"],
+            "baseUrl": profile_cfg.get("baseUrl"),
+            "apiBase": profile_cfg.get("apiBase"),
+            "dbEnvVar": profile_cfg.get("dbEnvVar")}
+
+
+def _dependents(scenarios):
+    """id -> set of ids that (transitively) depend on it."""
+    direct = {sc["id"]: set() for sc in scenarios}
+    for sc in scenarios:
+        for dep in sc.get("dependsOn", []):
+            direct[dep].add(sc["id"])
+
+    def walk(i, acc):
+        for d in direct.get(i, ()):
+            if d not in acc:
+                acc.add(d)
+                walk(d, acc)
+        return acc
+    return {i: walk(i, set()) for i in direct}
+
+
+def plan_changes(manifest, mstate):
+    """(to_clean ids in reverse-apply order, to_apply ids in topo order,
+    skipped ids). Changed block/config -> dirty; dependents of dirty are
+    transitively dirty; scenarios missing from the manifest are removed."""
+    order = topo_order(manifest["scenarios"])
+    desired = {sc["id"]: sc for sc in manifest["scenarios"]}
+    existing = mstate.get("scenarios", {})
+    removed = set(existing) - set(desired)
+    dirty = set()
+    for sid, sc in desired.items():
+        rec = existing.get(sid)
+        if rec and (rec["block"] != sc["block"]
+                    or rec["configHash"] != config_hash(sc["config"])):
+            dirty.add(sid)
+    deps = _dependents(manifest["scenarios"])
+    for sid in list(dirty):
+        dirty |= {d for d in deps.get(sid, ()) if d in existing}
+    to_clean_set = removed | dirty
+    apply_order_old = mstate.get("applyOrder", [])
+    to_clean = [i for i in reversed(apply_order_old) if i in to_clean_set]
+    to_apply = [i for i in order if i not in existing or i in dirty]
+    skipped = [i for i in order if i in existing and i not in dirty]
+    return to_clean, to_apply, skipped
+
+
+def apply_manifest(paths, branch, slot, profile_cfg, allow_protected,
+                   dry_run=False):
+    key = store.artifact_key(branch, slot)
+    manifest = load_manifest(_manifest_path(paths, key))
+    if manifest["branch"] != branch or manifest.get("slot") != slot:
+        raise EngineError(
+            f"manifest at {_manifest_path(paths, key)} declares branch="
+            f"{manifest['branch']!r} slot={manifest.get('slot')!r}, not "
+            f"({branch!r}, {slot!r}) — identity lives in the JSON")
+    project_blocks = blocks.discover_blocks(paths["blocks_dir"])
+    hits = gate_violations(manifest["scenarios"], project_blocks,
+                           profile_cfg.get("protectedTargets"))
+    if hits and not allow_protected:
+        sid, target, pat = hits[0]
+        raise EngineError(
+            f"protected-target refusal: scenario {sid!r} declares target "
+            f"{target!r} matching protected pattern {pat!r}. Pass "
+            f"--allow-protected ONLY if the user explicitly instructed it.",
+            scenarioId=sid, block=None)
+    if hits and allow_protected:
+        sys.stderr.write(
+            "⚠ --ALLOW-PROTECTED: writing to protected targets: "
+            + ", ".join(f"{t} (pattern {p}, scenario {s})" for s, t, p in hits)
+            + "\n")
+
+    st_path = _state_path(paths)
+    st = state.load_state(st_path)
+    mstate = st["manifests"].get(key, {"branch": branch, "slot": slot,
+                                       "applyOrder": [], "scenarios": {}})
+    to_clean, to_apply, skipped = plan_changes(manifest, mstate)
+
+    if dry_run:
+        return {"ok": True, "command": "apply", "key": key, "dryRun": True,
+                "wouldClean": to_clean, "wouldApply": to_apply,
+                "skipped": skipped,
+                "allowProtectedUsed": bool(hits and allow_protected)}
+
+    lp = _lock_path(paths)
+    try:
+        lock.acquire(lp)
+    except lock.LockHeld as exc:
+        raise EngineError(
+            f"engine lock is held ({exc.holder}); if the holder is dead, "
+            f"run `engine.py unlock`") from exc
+    try:
+        ctx = _ctx(paths, profile_cfg)
+        desired = {sc["id"]: sc for sc in manifest["scenarios"]}
+        for sid in to_clean:
+            rec = mstate["scenarios"][sid]
+            _run_and_raise(rec["block"], "clean", rec["config"], ctx,
+                           project_blocks, sid, result=rec.get("result"))
+            del mstate["scenarios"][sid]
+            mstate["applyOrder"] = [i for i in mstate["applyOrder"] if i != sid]
+            st["manifests"][key] = mstate
+            state.save_state(st_path, st)
+        for sid in to_apply:
+            sc = desired[sid]
+            result = _run_and_raise(sc["block"], "apply", sc["config"], ctx,
+                                    project_blocks, sid)
+            mstate["scenarios"][sid] = {
+                "block": sc["block"], "config": sc["config"],
+                "configHash": config_hash(sc["config"]),
+                "result": result, "appliedAt": _now()}
+            mstate["applyOrder"].append(sid)
+            st["manifests"][key] = mstate
+            state.save_state(st_path, st)
+        if not mstate["scenarios"]:
+            st["manifests"].pop(key, None)
+            state.save_state(st_path, st)
+        return {"ok": True, "command": "apply", "key": key, "dryRun": False,
+                "applied": to_apply, "cleaned": to_clean, "skipped": skipped,
+                "allowProtectedUsed": bool(hits and allow_protected)}
+    finally:
+        lock.release(lp)
+
+
+def _run_and_raise(block, op, config, ctx, project_blocks, sid, result=None):
+    try:
+        return blocks.run_block(block, op, config, ctx, project_blocks,
+                                result=result)
+    except blocks.BlockError as exc:
+        raise EngineError(str(exc), block=exc.block or block,
+                          scenarioId=sid) from exc
+
+
+def clean_manifest(paths, branch, slot, profile_cfg=None):
+    """Clean every seeded scenario for branch+slot FROM STATE (works for
+    orphans whose manifest file is gone)."""
+    key = store.artifact_key(branch, slot)
+    st_path = _state_path(paths)
+    st = state.load_state(st_path)
+    mstate = st["manifests"].get(key)
+    if not mstate:
+        return {"ok": True, "command": "clean", "key": key, "cleaned": []}
+    project_blocks = blocks.discover_blocks(paths["blocks_dir"])
+    ctx = _ctx(paths, profile_cfg or {})
+    lp = _lock_path(paths)
+    try:
+        lock.acquire(lp)
+    except lock.LockHeld as exc:
+        raise EngineError(f"engine lock is held ({exc.holder})") from exc
+    cleaned = []
+    try:
+        for sid in list(reversed(mstate["applyOrder"])):
+            rec = mstate["scenarios"][sid]
+            _run_and_raise(rec["block"], "clean", rec["config"], ctx,
+                           project_blocks, sid, result=rec.get("result"))
+            del mstate["scenarios"][sid]
+            mstate["applyOrder"].remove(sid)
+            state.save_state(st_path, st)
+            cleaned.append(sid)
+        st["manifests"].pop(key, None)
+        state.save_state(st_path, st)
+        return {"ok": True, "command": "clean", "key": key, "cleaned": cleaned}
+    finally:
+        lock.release(lp)
+
+
+def status(paths):
+    st = state.load_state(_state_path(paths))
+    entries = []
+    for key, mstate in sorted(st["manifests"].items()):
+        mp = _manifest_path(paths, key)
+        drift = []
+        if os.path.exists(mp):
+            try:
+                manifest = load_manifest(mp)
+                desired = {sc["id"]: sc for sc in manifest["scenarios"]}
+                for sid, rec in mstate["scenarios"].items():
+                    sc = desired.get(sid)
+                    if sc is None or rec["configHash"] != config_hash(sc["config"]):
+                        drift.append(sid)
+            except EngineError as exc:
+                drift = [f"manifest unreadable: {exc}"]
+        entries.append({"key": key, "branch": mstate["branch"],
+                        "slot": mstate.get("slot"),
+                        "applied": len(mstate["scenarios"]),
+                        "drift": sorted(drift),
+                        "orphan": not os.path.exists(mp)})
+    lp = _lock_path(paths)
+    holder = lock.read_holder(lp) if os.path.exists(lp) else None
+    return {"ok": True, "command": "status", "entries": entries,
+            "lock": holder, "lockStale": lock.is_stale(lp) if holder else False}
+
+
+def unlock(paths):
+    lp = _lock_path(paths)
+    holder = lock.read_holder(lp) if os.path.exists(lp) else None
+    released = holder is not None
+    lock.release(lp)
+    return {"ok": True, "command": "unlock", "released": released,
+            "holder": holder}
