@@ -1,0 +1,92 @@
+diff --git a/src/services/credits.ts b/src/services/credits.ts
+new file mode 100644
+--- /dev/null
++++ b/src/services/credits.ts
+@@ -0,0 +1,14 @@
++import { db } from "../db/client";
++
++// Transfers credits between two accounts.
++export async function transferCredits(fromId, toId, amount) {
++  const from = await db.accounts.findOne({ id: fromId });
++  if (!from || from.balance < amount) {
++    throw new Error("insufficient balance");
++  }
++  await db.accounts.update({ id: fromId }, { $inc: { balance: -amount } });
++  await db.accounts.update({ id: toId }, { $inc: { balance: amount } });
++  await db.transfers.insert({ fromId, toId, amount, at: Date.now() });
++  return { ok: true };
++}
++
+diff --git a/src/handlers/redeem.ts b/src/handlers/redeem.ts
+new file mode 100644
+--- /dev/null
++++ b/src/handlers/redeem.ts
+@@ -0,0 +1,16 @@
++import { db } from "../db/client";
++import { getSession } from "../auth/session";
++import { ok, badRequest, unauthorized } from "./responses";
++
++export async function redeemVoucher(req, res) {
++  const session = await getSession(req);
++  if (!session) return unauthorized(res);
++  const voucher = await db.vouchers.findOne({ code: req.params.code });
++  if (!voucher || voucher.redeemed) {
++    return badRequest(res, "voucher already redeemed");
++  }
++  await db.vouchers.update({ code: req.params.code }, { $set: { redeemed: true } });
++  await db.accounts.update({ id: session.userId }, { $inc: { balance: voucher.value } });
++  return ok(res, { credited: voucher.value });
++}
++
+diff --git a/src/services/notify.ts b/src/services/notify.ts
+new file mode 100644
+--- /dev/null
++++ b/src/services/notify.ts
+@@ -0,0 +1,12 @@
++const WEBHOOK_URL = process.env.TEAM_WEBHOOK_URL;
++
++// Posts a transfer notification to the team webhook.
++export async function notifyTransfer(transfer) {
++  const res = await fetch(WEBHOOK_URL, {
++    method: "POST",
++    headers: { "content-type": "application/json" },
++    body: JSON.stringify(transfer),
++  });
++  return res.ok;
++}
++
+diff --git a/src/services/rates.ts b/src/services/rates.ts
+new file mode 100644
+--- /dev/null
++++ b/src/services/rates.ts
+@@ -0,0 +1,12 @@
++import { computeRate } from "./compute-rate";
++
++const rateCache = new Map();
++
++export async function getRate(accountId, day) {
++  const key = `${accountId}:${day}`;
++  if (!rateCache.has(key)) {
++    const rate = await computeRate(accountId, day);
++    rateCache.set(key, rate);
++  }
++  return rateCache.get(key);
++}
+diff --git a/src/migrations/2026-06-add-balance-cents.ts b/src/migrations/2026-06-add-balance-cents.ts
+new file mode 100644
+--- /dev/null
++++ b/src/migrations/2026-06-add-balance-cents.ts
+@@ -0,0 +1,13 @@
++import { db } from "../db/client";
++
++// Converts account.balance (dollars float) to balanceCents (integer).
++export async function up() {
++  const accounts = await db.accounts.find({});
++  for (const account of accounts) {
++    await db.accounts.update(
++      { id: account.id },
++      { $set: { balanceCents: Math.round(account.balance * 100) } },
++    );
++  }
++  await db.accounts.updateMany({}, { $unset: { balance: 1 } });
++}

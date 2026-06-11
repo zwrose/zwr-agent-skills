@@ -370,3 +370,30 @@ def test_finding_outside_all_windows_lands_net_new(tmp_path):
     r = score.score_fixture(fdir, findings)
     assert r["precision"]["traps_flagged"] == 0
     assert len(r["net_new"]) == 1
+
+
+# ---- real-fixture liveness smokes (failure-modes fixtures) -----------------
+
+def _real_fixture(name):
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(os.path.dirname(here), "fixtures", name)
+
+
+def test_smoke_failure_modes_perfect_recall(tmp_path):
+    # Liveness: every seed's lineHint resolves, and a finding citing each
+    # resolved line exactly scores matched == total. An unresolvable seed
+    # would fail loudly here (missed[]), before any agent ever runs.
+    fdir = _real_fixture("failure-modes")
+    expected = score.load_expected(fdir)
+    with open(fdir + "/diff.txt") as f:
+        by_file = score._parse_diff_lines(f.read())
+    findings = []
+    for seed in expected["seeds"]:
+        line = score._resolve_line(by_file, seed["file"], seed["lineHint"])
+        assert line is not None, f"seed lineHint does not resolve: {seed['lineHint']!r}"
+        findings.append({"dimension": seed["dimension"], "taxonomy": seed["taxonomy"],
+                         "file": seed["file"], "line": line})
+    r = score.score_fixture(fdir, findings)
+    assert r["recall"]["matched"] == r["recall"]["total"] == len(expected["seeds"])
+    assert r["precision"]["traps_flagged"] == 0

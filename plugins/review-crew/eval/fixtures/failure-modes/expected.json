@@ -1,0 +1,47 @@
+{
+  "fixture": "failure-modes",
+  "description": "Recall fixture for the premortem-reviewer (dimension Failure-Mode). Five seeded whole-flow failure bugs, one per diff-mode taxonomy class. Premortem-only dispatch; acceptance bar: matched == total (zero misses). Every seeded flow fits within +/-15 lines of its lineHint.",
+  "seeds": [
+    {
+      "dimension": "Failure-Mode",
+      "severity": "Critical",
+      "taxonomy": "partial-failure",
+      "file": "src/services/credits.ts",
+      "lineHint": "await db.accounts.update({ id: fromId }, { $inc: { balance: -amount } });",
+      "why": "transferCredits debits the source then credits the destination in two separate writes with no transaction (CLAUDE.md requires db.transaction for multi-step writes) and no compensation. Trigger: process crash/deploy restart between the writes. Impact: the debit persists with no matching credit - balance corruption."
+    },
+    {
+      "dimension": "Failure-Mode",
+      "severity": "Critical",
+      "taxonomy": "concurrency/race",
+      "file": "src/handlers/redeem.ts",
+      "lineHint": "if (!voucher || voucher.redeemed) {",
+      "why": "Check-then-act: two concurrent redeem requests both read redeemed=false, both pass the check, and the voucher's value is credited twice. Multi-tenant profile makes concurrent invocation realistic; no atomic guard (the update filter does not include redeemed: false). Double-credit moves money."
+    },
+    {
+      "dimension": "Failure-Mode",
+      "severity": "Important",
+      "taxonomy": "dependency-failure",
+      "file": "src/services/notify.ts",
+      "lineHint": "const res = await fetch(WEBHOOK_URL, {",
+      "why": "Raw fetch to an external webhook with no timeout and no error handling - CLAUDE.md mandates the retryFetch wrapper. A slow/unreachable webhook hangs or throws into the calling flow after the transfer has already been written."
+    },
+    {
+      "dimension": "Failure-Mode",
+      "severity": "Important",
+      "taxonomy": "resource-exhaustion",
+      "file": "src/services/rates.ts",
+      "lineHint": "rateCache.set(key, rate);",
+      "why": "Module-level Map keyed by (accountId, day) grows without bound or eviction across every account x day pair ever requested - unbounded memory growth under realistic multi-tenant load."
+    },
+    {
+      "dimension": "Failure-Mode",
+      "severity": "Important",
+      "taxonomy": "migration-rollback",
+      "file": "src/migrations/2026-06-add-balance-cents.ts",
+      "lineHint": "await db.accounts.updateMany({}, { $unset: { balance: 1 } });",
+      "why": "The migration unsets the old balance field in the SAME pass that writes balanceCents (CLAUDE.md: destructive steps belong in a later migration) and exports no down(). A mid-loop failure leaves mixed-format rows; a deploy rollback leaves old code reading a field that no longer exists."
+    }
+  ],
+  "traps": []
+}
