@@ -100,3 +100,54 @@ def has_pep723(path):
             return any(line.strip() == "# /// script" for line in fh)
     except OSError:
         return False
+
+
+def run_block(name, op, config, ctx, project_blocks, result=None,
+              runner=subprocess.run):
+    """Execute a block under the ONE subprocess contract."""
+    if name == "run-command":
+        return _run_command_block(op, config, ctx, runner)
+    info = project_blocks.get(name)
+    if info is None:
+        raise BlockError(f"unknown block {name!r}", block=name)
+    if has_pep723(info["path"]):
+        if shutil.which("uv") is None:
+            raise BlockError(
+                f"block {name!r} declares PEP 723 dependencies but `uv` is "
+                f"not installed; install it first "
+                f"(https://docs.astral.sh/uv/ — e.g. `brew install uv`)",
+                block=name)
+        argv = ["uv", "run", info["path"]]
+    else:
+        argv = [sys.executable, info["path"]]
+    request = {"op": op, "config": config, "ctx": ctx}
+    if result is not None:
+        request["result"] = result
+    proc = runner(argv, input=json.dumps(request), text=True,
+                  capture_output=True, cwd=ctx.get("repoRoot"))
+    if proc.returncode != 0:
+        raise BlockError(
+            f"block {name!r} {op} failed (exit {proc.returncode}): "
+            f"{proc.stderr.strip()[:500]}", block=name)
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise BlockError(
+            f"block {name!r} printed non-JSON output: "
+            f"{proc.stdout.strip()[:200]!r}", block=name) from exc
+
+
+def _run_command_block(op, config, ctx, runner):
+    argv = config.get("command") if op == "apply" else config.get("cleanCommand")
+    if op == "clean" and not argv:
+        return {"skipped": "no cleanCommand"}
+    if not isinstance(argv, list) or not argv:
+        raise BlockError("run-command requires config.command (argv array)",
+                         block="run-command")
+    proc = runner(argv, text=True, capture_output=True,
+                  cwd=ctx.get("repoRoot"))
+    if proc.returncode != 0:
+        raise BlockError(
+            f"run-command {op} failed (exit {proc.returncode}): "
+            f"{proc.stderr.strip()[:500]}", block="run-command")
+    return {"exitCode": 0, "stdout": proc.stdout[-2000:]}
