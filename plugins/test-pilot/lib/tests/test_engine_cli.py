@@ -99,3 +99,38 @@ def test_unlock_shape(tmp_path):
     out = json.loads(_cli(repo, env, "unlock").stdout)
     assert out == {"ok": True, "command": "unlock", "released": False,
                    "holder": None}
+
+
+# Fix 5: validate-plan subcommand.
+def _setup_repo_with_plan(tmp_path, steps):
+    """Like _setup_repo but also writes a plan record JSON next to the manifest."""
+    repo, env, marker = _setup_repo(tmp_path)
+    root = env["TEST_PILOT_STORE_ROOT"]
+    c = store.create(repo, "global", root)
+    key = store.artifact_key("feat/x")
+    plan_path = os.path.join(c["manifests_dir"], f"{key}.plan.json")
+    json.dump({"schemaVersion": 1, "steps": steps}, open(plan_path, "w"))
+    return repo, env, marker, key
+
+
+def test_validate_plan_ok(tmp_path):
+    steps = [{"id": "s1", "instruction": "Open the page", "expected": "Page loads",
+               "scenarioIds": ["a"]}]
+    repo, env, _, key = _setup_repo_with_plan(tmp_path, steps)
+    r = _cli(repo, env, "validate-plan", "--branch", "feat/x")
+    assert r.returncode == 0, r.stdout
+    out = json.loads(r.stdout)
+    assert out["ok"] is True and out["command"] == "validate-plan"
+    assert out["steps"] == 1 and out["key"] == key
+
+
+def test_validate_plan_dangling_scenario_id(tmp_path):
+    # Step references scenario "z" which does not exist in the manifest.
+    steps = [{"id": "s1", "instruction": "Do something", "expected": "Works",
+               "scenarioIds": ["z"]}]
+    repo, env, _, key = _setup_repo_with_plan(tmp_path, steps)
+    r = _cli(repo, env, "validate-plan", "--branch", "feat/x")
+    assert r.returncode == 1
+    out = json.loads(r.stdout)
+    assert out["ok"] is False
+    assert "missing" in out["error"]

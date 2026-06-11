@@ -30,6 +30,7 @@ post a results comment, and leave the PR ready for human spot-check.
    branch — default: every slot in sequence; an explicit slot argument
    narrows to one. None → run the test-pilot-plan skill first, then return.
    The PR comment is NEVER parsed as the plan source.
+   Validate each before executing: `python3 "${CLAUDE_PLUGIN_ROOT}/lib/engine.py" validate-plan --branch B [--slot S] --json` — a validation error means regenerate the plan, never an app bug.
 2. **Seed check.** `engine.py status --json`; apply the manifest if drift or
    nothing applied (`engine.py apply --branch B [--slot S] --json`).
 3. **App up.** Per the profile: if `mayManageServer`, start `devCommand` in
