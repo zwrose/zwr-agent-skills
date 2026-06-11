@@ -40,9 +40,9 @@ line's stripped text to its new-file line number, and look the lineHint up there
   iff same ``file`` AND same ``dimension`` AND either
     (a) the cited line is within **±K (K=15)** of the seed's resolved line, OR
     (b) the finding carries the same ``taxonomy`` as the seed (anywhere in file).
-  Traps are matched with the same scope-aware logic (a function-scoped trap such
-  as ``size-only``/``clear-non-duplicative``/the Failure-Mode bait reasons uses
-  the ±K window; otherwise ±2).
+  Traps are matched with the same scope-aware logic (a function-scoped trap —
+  ``size-only``, ``clear-non-duplicative``, or one of the Failure-Mode bait
+  reasons — uses the ±K window; otherwise ±2).
 
 Gate (only when a baseline findings set is supplied)
 ----------------------------------------------------
