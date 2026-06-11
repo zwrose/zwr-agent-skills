@@ -323,7 +323,7 @@ def test_line_scoped_failure_mode_taxonomies_stay_line_scoped(tmp_path, taxonomy
                            "lineHint": "export function getNote(id) {"}],  # line 3
                 "traps": []}
     fdir = _make_fixture(tmp_path, expected, SYNTH_DIFF)
-    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 7}]  # +4 off
+    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 7, "taxonomy": taxonomy}]  # +4 off
     r = score.score_fixture(fdir, findings)
     assert r["recall"]["matched"] == 0
 
@@ -407,9 +407,14 @@ def test_smoke_failure_modes_perfect_recall():
     for seed in expected["seeds"]:
         line = score._resolve_line(by_file, seed["file"], seed["lineHint"])
         assert line is not None, f"seed lineHint does not resolve: {seed['lineHint']!r}"
-        findings.append({"dimension": seed["dimension"], "taxonomy": seed["taxonomy"],
+        findings.append({"dimension": seed["dimension"],
                          "file": seed["file"], "line": line})
     r = score.score_fixture(fdir, findings)
+    assert r["recall"]["total"] == 5
+    assert {s["taxonomy"] for s in expected["seeds"]} == {
+        "concurrency/race", "partial-failure", "dependency-failure",
+        "resource-exhaustion", "migration-rollback",
+    }
     assert r["recall"]["matched"] == r["recall"]["total"] == len(expected["seeds"])
     assert r["precision"]["traps_flagged"] == 0
 
@@ -428,5 +433,6 @@ def test_smoke_bait_fixture_traps_are_live():
         line = score._resolve_line(by_file, trap["file"], trap["lineHint"])
         assert line is not None, f"trap lineHint does not resolve: {trap['lineHint']!r}"
         findings.append({"dimension": "Failure-Mode", "file": trap["file"], "line": line})
+    assert len(expected["traps"]) == 3
     r = score.score_fixture(fdir, findings)
     assert r["precision"]["traps_flagged"] == len(expected["traps"])
