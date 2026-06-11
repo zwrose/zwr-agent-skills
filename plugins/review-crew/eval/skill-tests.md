@@ -5,7 +5,7 @@ dimensions the review skills branch on: **profile presence × profile status ×
 verify-mode × review-init branches × strict fallback**. For each cell it records
 the **trigger**, the **expected behavior**, and the **skill:section that
 implements it** — then a **verification pass** confirms the cited prose actually
-produces that behavior.
+produces that behavior. (Live-run cells — section 7 — record a procedure and an outcome target instead of an implementing section.)
 
 This is the **lightweight skill-testing** the design spec calls for
 (`docs/superpowers/specs/2026-06-06-code-review-marketplace-design.md`, "Skill
@@ -123,11 +123,12 @@ record the outcome in `eval/RESULTS.md`.
 
 ## Coverage summary
 
-- **Cells:** **28 total** — Profile presence (4: P1–P4) + Profile status (6:
+- **Cells:** **28 prose-verified + 1 live-run (M1)** — Profile presence (4: P1–P4) + Profile status (6:
   S1–S6) + Verify-mode/review-code (4: V1–V4) + review-init branches (10: I1–I10)
   + Strict fallback (3: F1–F3) + audit-debt verify read (1: D4) = 4 + 6 + 4 + 10 +
   3 + 1 = **28**.
 - **Verified against prose:** all 28.
+- **Live-run (not prose-verified):** 1 — M1 (section 7); gated on plugin install, outcome recorded in `eval/RESULTS.md`.
 - **Already correct (no prose change needed):** 27.
 - **Implemented to close a flagged gap (C1):** 1 (S6 — provisional-profile
   confirmation on interactive review).
