@@ -314,9 +314,11 @@ def test_failure_mode_seed_matches_at_flow_distance(tmp_path, taxonomy):
     assert r["recall"]["matched"] == 1
 
 
-def test_detectability_stays_line_scoped(tmp_path):
-    # detectability (and assumption-violation) keep the exact +/-2 default.
-    expected = {"seeds": [{"dimension": "Failure-Mode", "taxonomy": "detectability",
+@pytest.mark.parametrize("taxonomy", ["detectability", "assumption-violation"])
+def test_line_scoped_failure_mode_taxonomies_stay_line_scoped(tmp_path, taxonomy):
+    # detectability and assumption-violation keep the exact +/-2 default
+    # (they are NOT in FUNCTION_SCOPED). A finding 4 lines off must not match.
+    expected = {"seeds": [{"dimension": "Failure-Mode", "taxonomy": taxonomy,
                            "file": "src/app.ts",
                            "lineHint": "export function getNote(id) {"}],  # line 3
                 "traps": []}
@@ -324,6 +326,19 @@ def test_detectability_stays_line_scoped(tmp_path):
     findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 7}]  # +4 off
     r = score.score_fixture(fdir, findings)
     assert r["recall"]["matched"] == 0
+
+
+def test_failure_mode_seed_matches_at_exact_window_boundary(tmp_path):
+    # Boundary pin: a finding exactly K=15 lines from the seed's resolved line
+    # (line 3) must still match (|18 - 3| == 15 == FUNCTION_WINDOW).
+    expected = {"seeds": [{"dimension": "Failure-Mode", "taxonomy": "partial-failure",
+                           "file": "src/app.ts",
+                           "lineHint": "export function getNote(id) {"}],  # line 3
+                "traps": []}
+    fdir = _make_fixture(tmp_path, expected, SYNTH_DIFF)
+    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 18}]  # exactly 15 off
+    r = score.score_fixture(fdir, findings)
+    assert r["recall"]["matched"] == 1
 
 
 @pytest.mark.parametrize("reason_token", [
@@ -380,7 +395,7 @@ def _real_fixture(name):
     return os.path.join(os.path.dirname(here), "fixtures", name)
 
 
-def test_smoke_failure_modes_perfect_recall(tmp_path):
+def test_smoke_failure_modes_perfect_recall():
     # Liveness: every seed's lineHint resolves, and a finding citing each
     # resolved line exactly scores matched == total. An unresolvable seed
     # would fail loudly here (missed[]), before any agent ever runs.
@@ -399,7 +414,7 @@ def test_smoke_failure_modes_perfect_recall(tmp_path):
     assert r["precision"]["traps_flagged"] == 0
 
 
-def test_smoke_bait_fixture_traps_are_live(tmp_path):
+def test_smoke_bait_fixture_traps_are_live():
     # Liveness: every bait trap's lineHint resolves AND fires when a finding
     # is placed on it. traps_flagged == 0 is otherwise vacuously satisfiable
     # by a dead trap whose lineHint never matches (no warning from score.py).

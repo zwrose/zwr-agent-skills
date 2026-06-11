@@ -51,12 +51,15 @@ def _rubric_dimensions():
 @pytest.mark.parametrize("skill", ["review-plan", "review-code"])
 def test_full_crew_table_has_one_row_per_agent(skill):
     rows = _table_rows(os.path.join("skills", skill, "SKILL.md"))
-    assert {slug for slug, _, _ in rows} == _agent_slugs()
+    expected_set = _agent_slugs()
+    slugs = [slug for slug, _, _ in rows]
+    assert sorted(slugs) == sorted(expected_set)
 
 
 def test_audit_debt_table_lists_exactly_the_original_four():
     rows = _table_rows(os.path.join("skills", "audit-debt", "SKILL.md"))
-    assert {slug for slug, _, _ in rows} == ORIGINAL_FOUR
+    slugs = [slug for slug, _, _ in rows]
+    assert sorted(slugs) == sorted(ORIGINAL_FOUR)
 
 
 @pytest.mark.parametrize("skill,expected_slugs", [

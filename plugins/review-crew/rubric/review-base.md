@@ -56,6 +56,7 @@ is the one authoritative schema; agents must not redefine the fields inline.
     "id": "<agent-name>-001",
     "severity": "Critical | Important | Minor | Nit",
     "dimension": "<one of the dimensions below>",
+    "taxonomy": "<the dimension's named taxonomy term, where one applies; optional>",
     "title": "<short descriptive title>",
     "file": "<path relative to repo root>",
     "line": "<number or null>",
@@ -69,6 +70,7 @@ is the one authoritative schema; agents must not redefine the fields inline.
 ```
 
 - `confidence` is the agent's own confidence after running the in-pass Chain-of-Verification (below). **High** = the chain passed cleanly. **Low** = emitted but genuinely unsure — it flags the finding for scrutiny rather than dropping a possibly-real issue. Required on Critical/Important (a **Low** Critical/Important MUST name exactly what is uncertain in its `evidence` line); may be omitted on Minor/Nit (treated as High). Low confidence does not, on its own, change the verdict beyond what the finding's severity already implies.
+- `taxonomy` carries the dimension's named taxonomy term where one applies (e.g. OWASP class for Security, defect class for Code, test smell for Test, failure class for Failure-Mode). Optional for most agents; **required** by the Failure-Mode reviewer, whose eval scoring keys on it. Omit when no named term applies to the finding.
 
 **Dimensions** (the orchestrator reads this list; it is data, not hard-wired —
 adding one later is a single-place change): `Architecture`, `Code`, `Security`,

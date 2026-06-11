@@ -264,7 +264,7 @@ def _score_one(expected, by_file, findings):
         target = _resolve_line(by_file, trap.get("file", ""), trap.get("lineHint", ""))
         # A trap has no dimension; the README matches "some emitted finding" on
         # location regardless of dimension. Scope is the trap's own nature, read
-        # from whyNotFlagged: size-only / clear-non-duplicative are whole-symbol
+        # from whyNotFlagged: reasons in FUNCTION_SCOPED_TRAP_REASONS are whole-symbol
         # (function-scoped) traps; everything else is line-scoped (±2).
         func_scoped = any(r in (trap.get("whyNotFlagged") or "")
                           for r in FUNCTION_SCOPED_TRAP_REASONS)

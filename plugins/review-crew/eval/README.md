@@ -138,7 +138,7 @@ nothing to flag, write an empty array (`[]`).
 [paste the variant's rubric: $OUT/rubric.{baseline|improved}.md]
 ```
 
-Substitutions per dispatch: `<Dimension>` ∈ {Architecture, Code, Security, Test, Failure-Mode};
+Substitutions per dispatch: `<Dimension>` ∈ {Architecture, Code, Security, Test};
 `<x>` the matching agent slug; `<fixture>` ∈ {web-handler, refactor}; output path
 e.g. `$OUT/<x>.<fixture>.<variant>.json`.
 
