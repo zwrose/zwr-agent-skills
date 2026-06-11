@@ -37,10 +37,11 @@ def generate(blocks_dir):
 
 def main(argv):
     args = argv[1:]
-    if "--blocks-dir" not in args:
+    i = args.index("--blocks-dir") if "--blocks-dir" in args else -1
+    if i < 0 or i + 1 >= len(args):
         sys.stderr.write("usage: catalog.py --blocks-dir DIR\n")
         return 2
-    d = args[args.index("--blocks-dir") + 1]
+    d = args[i + 1]
     try:
         text = generate(d)
     except blocks.BlockError as exc:

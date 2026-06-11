@@ -45,3 +45,11 @@ def test_empty_blocks_dir_still_documents_builtins(tmp_path):
     os.makedirs(d)
     text = catalog.generate(d)
     assert "## run-command" in text
+
+
+def test_cli_missing_dir_value_is_usage_error(tmp_path):
+    lib = os.path.dirname(os.path.abspath(catalog.__file__))
+    r = subprocess.run(["python3", os.path.join(lib, "catalog.py"),
+                        "--blocks-dir"], capture_output=True, text=True)
+    assert r.returncode == 2
+    assert "usage" in r.stderr
