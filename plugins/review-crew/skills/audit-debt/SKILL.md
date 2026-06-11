@@ -183,7 +183,7 @@ Print this dispatch summary as a plain status message, then dispatch the special
 
 - **Skill:** `audit-debt`
 - **Scope:** the whole repo — `$FILE_COUNT` files under the project's source dirs
-- **Specialists to dispatch (all four, in parallel):**
+- **Specialists to dispatch (all four, in parallel — intentionally the original four; the `premortem-reviewer` / Failure-Mode whole-repo sweep is deferred):**
   - `architecture-reviewer` → `findings-architecture.json`
   - `code-reviewer` → `findings-code.json`
   - `security-reviewer` → `findings-security.json`

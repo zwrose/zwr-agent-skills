@@ -6,9 +6,9 @@ user-invocable: true
 
 # Review Code
 
-Run a multi-dimensional code review on either an open pull request or a local branch (vs the default branch), then **autonomously fix what it finds**. The main context is an **orchestrator** — it fetches metadata, dispatches four specialist agents in parallel, compiles their findings, triages each into auto-fixable vs needs-your-judgment, applies fixes via a fixer subagent, and re-reviews — looping until no Critical/Important findings remain or a circuit breaker halts. It never loads the full diff or any agent's raw output into its own conversation; subagents do all heavy reading and write structured results to disk.
+Run a multi-dimensional code review on either an open pull request or a local branch (vs the default branch), then **autonomously fix what it finds**. The main context is an **orchestrator** — it fetches metadata, dispatches five specialist agents in parallel, compiles their findings, triages each into auto-fixable vs needs-your-judgment, applies fixes via a fixer subagent, and re-reviews — looping until no Critical/Important findings remain or a circuit breaker halts. It never loads the full diff or any agent's raw output into its own conversation; subagents do all heavy reading and write structured results to disk.
 
-The skill auto-detects whether you're reviewing a PR or a local branch, always dispatches the full set of specialists (architecture, code, security, test) so coverage is uniform across reviews, enforces the severity and verification rules in the base rubric at compile time (not just by hope), and — by default — drives an auto-fix loop that commits fixes locally (never pushes). Two read-only behaviors are preserved as flags.
+The skill auto-detects whether you're reviewing a PR or a local branch, always dispatches the full set of specialists (architecture, code, security, test, premortem) so coverage is uniform across reviews, enforces the severity and verification rules in the base rubric at compile time (not just by hope), and — by default — drives an auto-fix loop that commits fixes locally (never pushes). Two read-only behaviors are preserved as flags.
 
 There are three top-level paths, chosen at invocation:
 
@@ -16,7 +16,7 @@ There are three top-level paths, chosen at invocation:
 - **`--review-only`** → one review pass, then a read-only interactive terminal presentation. No commits.
 - **otherwise (default)** → the auto-fix loop: review → triage → fix → re-review, committing locally until clean or halted.
 
-The four specialist agents are bundled plugin agents (`architecture-reviewer`, `code-reviewer`, `security-reviewer`, `test-reviewer`); the orchestrator dispatches each by name via the Agent tool. Each agent's review methodology lives in its own system prompt; the orchestrator's dispatch passes it the base rubric (severity/verification/format), the project profile (`.claude/review-profile.md`), `CLAUDE.md`, the diff, and the findings output path. Every finding they emit must cite a `file:line` and target a `+`/`-` line in the diff — context-line and unchanged-code findings are dropped at compile time. Each specialist runs once per round; the orchestrator does not chain a "verifier agent" or run a specialist twice within a round, because multi-turn agentic review within a single pass degrades F1 and fabricates findings as real ones get exhausted (base rubric, "In-pass verification & single-pass discipline"). The loop re-reviews from scratch each round on a fresh diff, which is different from re-running a specialist on its own output.
+The five specialist agents are bundled plugin agents (`architecture-reviewer`, `code-reviewer`, `security-reviewer`, `test-reviewer`, `premortem-reviewer`); the orchestrator dispatches each by name via the Agent tool. Each agent's review methodology lives in its own system prompt; the orchestrator's dispatch passes it the base rubric (severity/verification/format), the project profile (`.claude/review-profile.md`), `CLAUDE.md`, the diff, and the findings output path. Every finding they emit must cite a `file:line` and target a `+`/`-` line in the diff — context-line and unchanged-code findings are dropped at compile time. Each specialist runs once per round; the orchestrator does not chain a "verifier agent" or run a specialist twice within a round, because multi-turn agentic review within a single pass degrades F1 and fabricates findings as real ones get exhausted (base rubric, "In-pass verification & single-pass discipline"). The loop re-reviews from scratch each round on a fresh diff, which is different from re-running a specialist on its own output.
 
 ## Invocation
 
@@ -54,6 +54,7 @@ Files written during the review. **Per-round artifacts live under `$SESSION_DIR/
 | `$SESSION_DIR/round-<N>/findings-code.json`         | code agent     | Code-reviewer findings array                                                                |
 | `$SESSION_DIR/round-<N>/findings-security.json`     | sec agent      | Security-reviewer findings array                                                            |
 | `$SESSION_DIR/round-<N>/findings-test.json`         | test agent     | Test-reviewer findings array                                                                |
+| `$SESSION_DIR/round-<N>/findings-premortem.json`    | premortem agent | Premortem-reviewer (Failure-Mode) findings array                                    |
 | `$SESSION_DIR/round-<N>/compiled.json`              | orchestrator   | Deduplicated, verified findings + summary + verdict (read by `circuit_breaker.py`)          |
 | `$SESSION_DIR/round-<N>/triage.json`                | triage agent   | Per-finding `mechanical`/`judgment` classification + POV for every finding (loop only)      |
 | `$SESSION_DIR/round-<N>/resolutions.json`           | orchestrator   | User decisions on `present-set` findings (loop only; read by `circuit_breaker.py`)          |
@@ -231,21 +232,22 @@ Print this dispatch summary as a plain status message, then dispatch the special
 - **Head SHA:** short hash
 - **Diff size:** `<DIFF_LINES>` lines
 - **Verify:** `VERIFY_CMD` (the command string), or `unverified` (no gate), or `review-only` (auto-fix disabled — this run degrades to a single pass + presentation)
-- **Specialists to dispatch (all four, in parallel):**
+- **Specialists to dispatch (all five, in parallel):**
   - `architecture-reviewer` → `findings-architecture.json`
   - `code-reviewer` → `findings-code.json`
   - `security-reviewer` → `findings-security.json`
   - `test-reviewer` → `findings-test.json`
+  - `premortem-reviewer` → `findings-premortem.json`
 - **Session directory:** `$SESSION_DIR` (round 1 artifacts under `round-1/`)
 - **Focus notes:** the `--focus` argument, if any
 - **Path:** default → auto-fix loop (compile + dedupe → triage → fix → re-review, committing locally); `--review-only` → one pass + interactive presentation; `--post` → one pass + post to GitHub
 - **What happens after dispatch (default loop):** compile + dedupe → triage → user interventions on judgment calls → fixer subagent commits → verify gate (`VERIFY_CMD`, unless `unverified`) → circuit-breaker → re-review or exit
 
-Do **not** tier or skip specialists based on which files changed. Coverage uniformity matters more than saving an agent dispatch — a "no security-relevant files changed" guess is exactly when an IDOR slips through. All four always run. The agents themselves return an empty findings array when there's nothing in their dimension, which is cheap.
+Do **not** tier or skip specialists based on which files changed. Coverage uniformity matters more than saving an agent dispatch — a "no security-relevant files changed" guess is exactly when an IDOR slips through. All five always run. The agents themselves return an empty findings array when there's nothing in their dimension, which is cheap.
 
 ### 3. Dispatch Specialists in Parallel
 
-Launch all four specialists in a **single message with four `Agent` tool calls** so they run in parallel, each dispatched by its `subagent_type` (the agent's name). Each gets the same prompt template, parameterized by `subagent_type`, dimension label, and findings filename. The agent's review methodology is its own system prompt — the prompt below is context-only (paths and rules); do **not** tell it to read an agent file. Embed the **absolute** base-rubric path (the expanded value of `RUBRIC`) so the subagent can read it. Substitute `<PROFILE_PATH>` with the resolved absolute `$PROFILE` when building each subagent prompt (subagents do not inherit shell vars):
+Launch all five specialists in a **single message with five `Agent` tool calls** so they run in parallel, each dispatched by its `subagent_type` (the agent's name). Each gets the same prompt template, parameterized by `subagent_type`, dimension label, and findings filename. The agent's review methodology is its own system prompt — the prompt below is context-only (paths and rules); do **not** tell it to read an agent file. Embed the **absolute** base-rubric path (the expanded value of `RUBRIC`) so the subagent can read it. Substitute `<PROFILE_PATH>` with the resolved absolute `$PROFILE` when building each subagent prompt (subagents do not inherit shell vars):
 
 ```
 You are reviewing <mode> for repo <repo>, target <pr-or-branch>.
@@ -324,17 +326,18 @@ Per-agent substitutions:
 | code-reviewer                | code                          | Code          |
 | security-reviewer            | security                      | Security      |
 | test-reviewer                | test                          | Test          |
+| premortem-reviewer           | premortem                     | Failure-Mode  |
 
-After dispatch, wait for all four agents to return. Each writes its findings file to `$SESSION_DIR/round-<round>/`. The orchestrator does not read agent transcripts — only the JSON files.
+After dispatch, wait for all five agents to return. Each writes its findings file to `$SESSION_DIR/round-<round>/`. The orchestrator does not read agent transcripts — only the JSON files.
 
 ### 4. Compile + Dedupe (main context)
 
-Read the four `$SESSION_DIR/round-<round>/findings-*.json` files. Apply, in order:
+Read the five `$SESSION_DIR/round-<round>/findings-*.json` files. Apply, in order:
 
 1. **Citation check.** Drop any finding with `file == null` or `line == null` — the base rubric's verification rules require a `file:line` citation.
 2. **Diff-scope verification.** Parse `$SESSION_DIR/round-<round>/diff.txt` to identify, for each file, the set of line numbers on `+` or `-` lines (the same hunk-walking logic `resolve_diff_lines.py` uses). Drop findings whose `(file, line)` pair isn't in that set. This is the same rule the subagents are supposed to enforce — duplicating it at compile time catches the cases they slip up on, especially context-line flags.
 3. **Reachability pre-check on Important findings.** For each remaining `severity == "Important"` finding, open the cited file (in `$SESSION_DIR/repo/` for the read-only PR paths, working tree otherwise), find the call sites of the affected symbol, and confirm the edge case is reachable. **When in doubt, downgrade to Minor rather than drop** — the user can still see and approve it, but it isn't blocking the verdict.
-4. **Dedupe by `(file, line)`.** When two findings target the same `(file, line)`, merge them: concatenate bodies with a separator, keep the higher severity, and list both dimensions (e.g. `"Security + Code"`). The merged finding **keeps the higher-severity input's `title`** (ties → the earlier one in dimension order Architecture, Code, Security, Test), so the finding identity (`file::normalized-title`) is deterministic round-to-round — the circuit breaker's recurrence check depends on a stable title. The merged finding is **`tradeoff: true` if either input is** (a judgment call in one facet makes the whole finding a judgment call). This also prevents the visual clutter of two GitHub comments on the same line.
+4. **Dedupe by `(file, line)`.** When two findings target the same `(file, line)`, merge them: concatenate bodies with a separator, keep the higher severity, and list both dimensions (e.g. `"Security + Code"`). The merged finding **keeps the higher-severity input's `title`** (ties → the earlier one in dimension order Architecture, Code, Security, Test, Failure-Mode), so the finding identity (`file::normalized-title`) is deterministic round-to-round — the circuit breaker's recurrence check depends on a stable title. The merged finding is **`tradeoff: true` if either input is** (a judgment call in one facet makes the whole finding a judgment call). This also prevents the visual clutter of two GitHub comments on the same line.
 5. **Author-justification filter (PR mode).** Cross-reference `prior-comments.json`. If a prior comment thread on the same `(file, line)` (or with the same finding topic on an outdated anchor) shows a substantive author justification, drop the new finding unless its body identifies a technical error in the justification.
 6. **Nit cap.** After dedupe, if more than 5 Nits remain, keep the first 5 and replace the rest with a single summary entry like `"+ 12 more Nits — see $SESSION_DIR/round-<round>/findings-*.json for details"` (the base rubric's severity caps).
 
@@ -374,7 +377,7 @@ Runs when neither `--post` nor `--review-only` is set, and the profile's verify 
 Each round:
 
 1. `mkdir -p $SESSION_DIR/round-<round>`. Regenerate the diff locally: `git diff <baseRef>...HEAD > $SESSION_DIR/round-<round>/diff.txt`. Size it with `wc -l` only — never `cat` it.
-2. **Review.** Dispatch the four specialists in parallel by `subagent_type` (same prompt template as `## Dispatch Specialists in Parallel`), writing `round-<round>/findings-<agent>.json`. Point them at `round-<round>/diff.txt`.
+2. **Review.** Dispatch the five specialists in parallel by `subagent_type` (same prompt template as `## Dispatch Specialists in Parallel`), writing `round-<round>/findings-<agent>.json`. Point them at `round-<round>/diff.txt`.
 3. **Compile + dedupe** into `round-<round>/compiled.json` with verdict (same pipeline as `## Compile + Dedupe`).
 4. **Effective findings** = `compiled.findings` whose identity is NOT in the skip-set.
 5. If `effective` is empty → **EXIT SUCCESS** (jump to End-of-Loop Summary).
@@ -673,12 +676,12 @@ These are the base rubric's binding verification rules; they are restated in eve
 | Dropping resolved Important findings silently           | If the reachability check or author-justification filter drops an Important, mention it to the user — they may want to see what was filtered.                      |
 | Skipping `--post` verification when GH returns success  | `gh api` can return 200 on a malformed body that GitHub silently treats as a no-op. Always run the post-submit verify call.                                        |
 | Trying to delete a bad review via API                   | Submitted reviews cannot be deleted via the GitHub API. Never iterate by re-posting — fix `review-resolved.json` and retry only after the resolve script is clean. |
-| Tiering or skipping specialists based on "what changed" | All four specialists always run. Coverage uniformity beats saving one agent dispatch — the agent returns `[]` if there's nothing to flag.                          |
+| Tiering or skipping specialists based on "what changed" | All five specialists always run. Coverage uniformity beats saving one agent dispatch — the agent returns `[]` if there's nothing to flag.                          |
 | Using `gh pr diff` inside the loop                      | Rounds 2+ have local fix commits not on the remote. Always recompute `git diff <baseRef>...HEAD` locally each round.                                               |
 | Auto-fixing a PR you don't have checked out             | Auto-fix needs the PR's branch as the current branch. If it isn't, stop and direct the user to `--post` or `--review-only`.                                        |
 | Re-reviewing on a broken tree                           | If `VERIFY_CMD` fails after a fix, HALT. Never run the next review round on code that doesn't pass verification. (No gate when the profile is `mode: unverified`.) |
 | Re-raising a finding the user skipped                   | Skipped identities go in the skip-set and are excluded from every later round's effective findings AND the circuit breaker.                                        |
 | Eyeballing "are we stuck?" by hand                      | Always call `circuit_breaker.py`. Finding-identity comparison across rounds is deterministic; manual judgment drifts after compaction.                             |
 | Pushing automatically at loop end                       | The loop commits locally only. Pushing is always a separate, user-confirmed step.                                                                                 |
-| Dispatching reviewers by reading an agent file          | The four reviewers are bundled plugin agents — dispatch each by its `subagent_type` (its name). The methodology is the agent's own system prompt.                  |
+| Dispatching reviewers by reading an agent file          | The five reviewers are bundled plugin agents — dispatch each by its `subagent_type` (its name). The methodology is the agent's own system prompt.                  |
 | Skipping the profile bootstrap                           | If `.claude/review-profile.md` is absent, run review-init's create procedure inline first. Headless runs get a provisional strict profile.                         |
