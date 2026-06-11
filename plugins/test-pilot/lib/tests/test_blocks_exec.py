@@ -200,3 +200,24 @@ def test_run_command_timeout_raises_block_error(tmp_path):
                          {"repoRoot": str(tmp_path)}, {}, runner=fake_runner)
     assert e.value.block == "run-command"
     assert "timed out" in str(e.value).lower()
+
+
+# r3-3-code-002: non-string / empty-string argv elements raise BlockError.
+def test_run_command_non_string_element_in_command(tmp_path):
+    cfg = {"command": ["python3", 3], "targets": ["t"]}
+    with pytest.raises(blocks.BlockError) as e:
+        blocks.run_block("run-command", "apply", cfg,
+                         {"repoRoot": str(tmp_path)}, {})
+    assert e.value.block == "run-command"
+    assert "command" in str(e.value)
+
+
+def test_run_command_empty_string_element_in_clean_command(tmp_path):
+    cfg = {"command": ["python3", "-c", "pass"],
+           "cleanCommand": ["python3", ""],
+           "targets": ["t"]}
+    with pytest.raises(blocks.BlockError) as e:
+        blocks.run_block("run-command", "clean", cfg,
+                         {"repoRoot": str(tmp_path)}, {})
+    assert e.value.block == "run-command"
+    assert "cleanCommand" in str(e.value)

@@ -105,6 +105,21 @@ def test_plan_record_valid(tmp_path):
     assert engine.load_plan_record(p, m)["steps"][0]["id"] == "s1"
 
 
+# r3-5-test-001(a): load_manifest rejects non-string and invalid slot fields.
+def test_load_manifest_rejects_non_string_slot(tmp_path):
+    bad = _manifest(slot=123)
+    with pytest.raises(engine.EngineError) as e:
+        engine.load_manifest(_write(tmp_path, bad))
+    assert "non-string slot" in str(e.value) or "slot" in str(e.value)
+
+
+def test_load_manifest_rejects_invalid_slot_pattern(tmp_path):
+    bad = _manifest(slot="bad~slot")
+    with pytest.raises(engine.EngineError) as e:
+        engine.load_manifest(_write(tmp_path, bad))
+    assert "invalid slot" in str(e.value) or "slot" in str(e.value)
+
+
 # r2-code-code-005: dependsOn must be a list of strings, not a string.
 def test_depends_on_string_instead_of_list_is_error(tmp_path):
     bad = _manifest()

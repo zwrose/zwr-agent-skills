@@ -93,6 +93,23 @@ def test_scrub_strips_json_colon_form_secrets():
     assert "sess-abc" not in s('"session_id": "sess-abc"')
 
 
+def test_scrub_strips_quoted_values_with_spaces_commas_braces():
+    """r3-4: quoted secret values containing spaces, commas, or braces are redacted."""
+    s = pc.scrub
+    # Value contains a space
+    assert "[REDACTED]" in s('"password": "hunter two"')
+    assert "hunter two" not in s('"password": "hunter two"')
+    # Value contains a comma
+    assert "[REDACTED]" in s('"client_secret": "a,b"')
+    assert "a,b" not in s('"client_secret": "a,b"')
+    # Value contains braces (JSON-style object snippet)
+    assert "[REDACTED]" in s('"access_token": "{tok: xyz}"')
+    assert "{tok: xyz}" not in s('"access_token": "{tok: xyz}"')
+    # Single-quoted variant with spaces
+    assert "[REDACTED]" in s("'password': 'my secret pass'")
+    assert "my secret pass" not in s("'password': 'my secret pass'")
+
+
 def test_scrub_negative_benign_text_unchanged():
     benign = ("Console error: TypeError: cannot read 'title' of undefined\n"
               "POST /api/todos returned 500\n"

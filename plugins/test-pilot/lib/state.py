@@ -53,4 +53,4 @@ def load_state(path):
 
 
 def save_state(path, data):
-    store._atomic_write(path, json.dumps(data, indent=2, sort_keys=True))
+    store.atomic_write(path, json.dumps(data, indent=2, sort_keys=True))

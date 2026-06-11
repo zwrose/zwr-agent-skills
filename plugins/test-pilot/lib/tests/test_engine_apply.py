@@ -255,6 +255,26 @@ def test_status_drift_non_empty_after_config_change(tmp_path):
     assert s["entries"][0]["drift"] == ["a"]
 
 
+# r3-5-test-001(b): apply_manifest raises EngineError when manifest JSON
+# declares different branch/slot than the requested pair.
+def test_apply_manifest_rejects_mismatched_branch(tmp_path):
+    paths = _paths(tmp_path)
+    # Write a manifest file at the key path for branch 'feat/x' but with
+    # branch='feat/y' inside the JSON.
+    mismatched = _manifest([_sc("a", str(tmp_path))], branch="feat/y")
+    _write_manifest(paths, mismatched)
+    with pytest.raises(engine.EngineError) as e:
+        # Request 'feat/y' so the key resolves correctly, but swap JSON branch
+        # to 'feat/x' so we get a mismatch.
+        wrong_json = _manifest([_sc("a", str(tmp_path))], branch="feat/x")
+        import json as _json
+        key = store.artifact_key("feat/y")
+        p = os.path.join(paths["manifests_dir"], f"{key}.json")
+        _json.dump(wrong_json, open(p, "w"))
+        engine.apply_manifest(paths, "feat/y", None, {}, allow_protected=False)
+    assert "declares branch" in str(e.value) or "identity" in str(e.value)
+
+
 # r2-test-test-004 (continued): status drift also fires on dependsOn-only change.
 def test_status_drift_non_empty_after_depends_on_change(tmp_path):
     paths = _paths(tmp_path)

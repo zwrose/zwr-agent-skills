@@ -198,6 +198,13 @@ def scenario_hash(sc):
                         "dependsOn": sorted(sc.get("dependsOn", []))})
 
 
+def _scenario_dirty(rec, sc):
+    """True when a state record no longer matches the desired scenario."""
+    return (rec["block"] != sc["block"]
+            or rec.get("scenarioHash") != scenario_hash(sc)
+            or rec["configHash"] != config_hash(sc["config"]))
+
+
 def _warn_protected(verb, hits):
     """Emit the standard --ALLOW-PROTECTED warning for a list of hits."""
     sys.stderr.write(
@@ -291,9 +298,7 @@ def plan_changes(manifest, mstate):
     dirty = set()
     for sid, sc in desired.items():
         rec = existing.get(sid)
-        if rec and (rec["block"] != sc["block"]
-                    or rec.get("scenarioHash") != scenario_hash(sc)
-                    or rec["configHash"] != config_hash(sc["config"])):
+        if rec and _scenario_dirty(rec, sc):
             dirty.add(sid)
     deps = _dependents(manifest["scenarios"])
     for sid in list(dirty):
@@ -437,9 +442,7 @@ def status(paths):
                 desired = {sc["id"]: sc for sc in manifest["scenarios"]}
                 for sid, rec in mstate["scenarios"].items():
                     sc = desired.get(sid)
-                    if (sc is None or rec["block"] != sc["block"]
-                            or rec.get("scenarioHash") != scenario_hash(sc)
-                            or rec["configHash"] != config_hash(sc["config"])):
+                    if sc is None or _scenario_dirty(rec, sc):
                         drift.append(sid)
             except EngineError as exc:
                 drift = [f"manifest unreadable: {exc}"]

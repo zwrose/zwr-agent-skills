@@ -151,10 +151,15 @@ def _run_command_block(op, config, ctx, runner):
     argv = config.get("command") if op == "apply" else config.get("cleanCommand")
     if op == "clean" and not argv:
         return {"skipped": "no cleanCommand"}
+    field = "command" if op == "apply" else "cleanCommand"
     if not isinstance(argv, list) or not argv:
-        field = "command" if op == "apply" else "cleanCommand"
         raise BlockError(f"run-command requires config.{field} (argv array)",
                          block="run-command")
+    bad = next((a for a in argv if not isinstance(a, str) or not a), None)
+    if bad is not None:
+        raise BlockError(
+            f"run-command requires config.{field} to be an array of non-empty "
+            f"strings; got {bad!r}", block="run-command")
     try:
         proc = runner(argv, text=True, capture_output=True,
                       cwd=ctx.get("repoRoot"), timeout=600)

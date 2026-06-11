@@ -68,11 +68,12 @@ _SCRUB_PATTERNS = [
                 r"client[_-]?secret)=([^&\s;\"']+)"),
      r"\1=[REDACTED]"),
     # Colon-separator (JSON/object) forms: "key": "value" or 'key': 'value'
-    # Require quoted value OR quoted key to avoid matching benign prose like
+    # Require quoted value AND quoted key to avoid matching benign prose like
     # "token bucket algorithm limits requests".
+    # Value may contain any chars except the closing quote.
     (re.compile(r"(?i)([\"'](?:session[_-]?id|session|sid|token|api[_-]?key|"
                 r"access[_-]?token|refresh[_-]?token|password|passwd|pwd|"
-                r"client[_-]?secret)[\"']\s*:\s*)[\"'][^\"',\s}]+[\"']"),
+                r"client[_-]?secret)[\"']\s*:\s*)(?:\"[^\"]*\"|'[^']*')"),
      r"\1[REDACTED]"),
     # URI userinfo credentials: scheme://user:pass@host -> scheme://[REDACTED]@host
     (re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://[^/\s:@]+):([^@\s/]+)@"),

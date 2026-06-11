@@ -100,7 +100,7 @@ def store_root():
         os.environ.get("TEST_PILOT_STORE_ROOT", "~/.claude/test-pilot")))
 
 
-def _atomic_write(path, text):
+def atomic_write(path, text):
     d = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(d, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=d, prefix=".test-pilot-store.", suffix=".tmp")
@@ -127,11 +127,11 @@ def read_pointer(root, key_hash):
 
 
 def write_pointer(root, key_hash, entry_id):
-    _atomic_write(os.path.join(root, "keys", key_hash), entry_id)
+    atomic_write(os.path.join(root, "keys", key_hash), entry_id)
 
 
 def _write_keys_json(entry_dir, ident):
-    _atomic_write(os.path.join(entry_dir, "keys.json"),
+    atomic_write(os.path.join(entry_dir, "keys.json"),
                   json.dumps(ident, indent=2))
 
 
