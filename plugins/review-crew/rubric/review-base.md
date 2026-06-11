@@ -1,4 +1,4 @@
-<!-- rubric-version: 2 -->
+<!-- rubric-version: 3 -->
 # review-base
 
 The source of truth for review **severity, verification rules, findings format,
@@ -72,9 +72,11 @@ is the one authoritative schema; agents must not redefine the fields inline.
 
 **Dimensions** (the orchestrator reads this list; it is data, not hard-wired —
 adding one later is a single-place change): `Architecture`, `Code`, `Security`,
-`Test`. These four are the default crew. The dispatching skill assigns each agent
-its dimension and its `id` prefix; the default crew runs one agent per dimension
-(e.g. the Security reviewer emits `security-001`, `security-002`, …).
+`Test`, `Failure-Mode`. These five are the default crew; each dispatching skill
+names the subset it runs. The dispatching skill assigns each agent its dimension
+and its `id` prefix; the default crew runs one agent per dimension (e.g. the
+Security reviewer emits `security-001`, …; the Failure-Mode reviewer emits
+`premortem-001`, …).
 
 ## Severity caps
 
