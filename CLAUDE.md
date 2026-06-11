@@ -54,13 +54,14 @@ Every PR and push to `main` runs `.github/workflows/ci.yml`:
 
 1. `validate_marketplace.py` — manifests parse, sources exist, versions are valid
    SemVer, no duplicate-version trap.
-2. `pytest plugins/review-crew/lib/tests/ plugins/review-crew/eval/tests/` — lib helpers and eval scorer unit tests.
+2. `pytest` over plugin lib/eval tests — review-crew (`lib/`, `eval/`) and
+   test-pilot (`lib/`) unit tests.
 
 Run both locally before pushing:
 
 ```bash
 python3 .github/scripts/validate_marketplace.py
-python3 -m pytest plugins/review-crew/lib/tests/ plugins/review-crew/eval/tests/ -q
+python3 -m pytest plugins/review-crew/lib/tests/ plugins/review-crew/eval/tests/ plugins/test-pilot/lib/tests/ -q
 ```
 
 ## Branch protection

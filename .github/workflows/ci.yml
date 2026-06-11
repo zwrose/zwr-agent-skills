@@ -25,5 +25,8 @@ jobs:
       - name: Install pytest
         run: python3 -m pip install --upgrade pytest
 
-      - name: Run review-crew eval tests
-        run: python3 -m pytest plugins/review-crew/lib/tests/ plugins/review-crew/eval/tests/ -q
+      - name: Install uv (test-pilot block-execution tests)
+        uses: astral-sh/setup-uv@v5
+
+      - name: Run plugin lib tests
+        run: python3 -m pytest plugins/review-crew/lib/tests/ plugins/review-crew/eval/tests/ plugins/test-pilot/lib/tests/ -q
