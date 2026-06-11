@@ -18,7 +18,8 @@ Shape:
 """
 import json
 import os
-import tempfile
+
+import store
 
 SCHEMA_VERSION = 1
 
@@ -52,18 +53,4 @@ def load_state(path):
 
 
 def save_state(path, data):
-    d = os.path.dirname(os.path.abspath(path)) or "."
-    os.makedirs(d, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=d, prefix=".state.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as fh:
-            json.dump(data, fh, indent=2, sort_keys=True)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+    store._atomic_write(path, json.dumps(data, indent=2, sort_keys=True))

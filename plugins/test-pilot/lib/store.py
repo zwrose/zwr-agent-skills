@@ -87,6 +87,14 @@ def derive_identifiers(cwd):
             "gitdir_hash": short_hash(gitdir)}
 
 
+def get_repo_root(cwd):
+    """Return the git worktree top-level for cwd (fallback: cwd itself)."""
+    out = _run_git(cwd, "rev-parse", "--show-toplevel")
+    if out:
+        return os.path.realpath(out)
+    return os.path.realpath(cwd)
+
+
 def store_root():
     return os.path.realpath(os.path.expanduser(
         os.environ.get("TEST_PILOT_STORE_ROOT", "~/.claude/test-pilot")))
@@ -176,6 +184,7 @@ def resolve(cwd, root):
     """Resolve all artifact locations. Location keys on the PROFILE: in-repo
     profile wins, else a global entry whose profile exists, else none.
     plans_dir/state_dir ALWAYS point into the global entry (machine-local)."""
+    repo_root = get_repo_root(cwd)
     ident = derive_identifiers(cwd)
     g = resolve_global(cwd, root)
     entry_id = g["entry_id"] if g else ident["gitdir_hash"]
@@ -183,7 +192,7 @@ def resolve(cwd, root):
     machine = {k: v for k, v in _entry_dirs(entry_dir).items()
                if k in ("plans_dir", "state_dir")}
 
-    in_repo = os.path.join(cwd, ".claude", "test-pilot")
+    in_repo = os.path.join(repo_root, ".claude", "test-pilot")
     if os.path.exists(os.path.join(in_repo, "profile.md")):
         return {"location": "in-repo", "exists": True, "entry_id": entry_id,
                 "profile": os.path.join(in_repo, "profile.md"),
@@ -203,9 +212,17 @@ def create(cwd, location, root):
     """Create the directory skeleton for `location` and ALWAYS mint the global
     entry (state/plans live there in both modes). Non-destructive. Returns the
     same dict shape as resolve()."""
+    repo_root = get_repo_root(cwd)
     ident = derive_identifiers(cwd)
-    entry_id = ident["gitdir_hash"]
-    entry_dir = os.path.join(root, "entries", entry_id)
+    # Reuse an existing live entry if one already exists (avoids orphaning
+    # applied state when a second clone creates a fresh gitdir-hash entry).
+    existing = resolve_global(cwd, root)
+    if existing is not None:
+        entry_id = existing["entry_id"]
+        entry_dir = existing["dir"]
+    else:
+        entry_id = ident["gitdir_hash"]
+        entry_dir = os.path.join(root, "entries", entry_id)
     os.makedirs(entry_dir, exist_ok=True)
     if not os.path.exists(os.path.join(entry_dir, "keys.json")):
         _write_keys_json(entry_dir, ident)
@@ -217,7 +234,7 @@ def create(cwd, location, root):
     os.makedirs(d["state_dir"], exist_ok=True)
 
     if location == "in-repo":
-        base = os.path.join(cwd, ".claude", "test-pilot")
+        base = os.path.join(repo_root, ".claude", "test-pilot")
         blocks, manifests = (os.path.join(base, "blocks"),
                              os.path.join(base, "manifests"))
         os.makedirs(blocks, exist_ok=True)
@@ -242,12 +259,12 @@ def decide_location(env_value, interactive):
     return "ask" if interactive else "global"
 
 
-def _parse_kv(args, flag):
+def _parse_kv(args, flag, default=None):
     if flag in args:
         i = args.index(flag)
-        if i + 1 < len(args):
+        if i + 1 < len(args) and not args[i + 1].startswith("--"):
             return args[i + 1]
-    return None
+    return default
 
 
 def main(argv):

@@ -159,12 +159,12 @@ def upsert(pr, family, key, body, plans_dir=None):
     return {"action": action, "id": cid}
 
 
-def _arg(args, flag):
+def _arg(args, flag, default=None):
     if flag in args:
         i = args.index(flag)
-        if i + 1 < len(args):
+        if i + 1 < len(args) and not args[i + 1].startswith("--"):
             return args[i + 1]
-    return None
+    return default
 
 
 def main(argv):

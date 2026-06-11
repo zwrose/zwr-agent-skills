@@ -35,13 +35,20 @@ def generate(blocks_dir):
     return "\n".join(out)
 
 
+def _arg(args, flag, default=None):
+    if flag in args:
+        i = args.index(flag)
+        if i + 1 < len(args) and not args[i + 1].startswith("--"):
+            return args[i + 1]
+    return default
+
+
 def main(argv):
     args = argv[1:]
-    i = args.index("--blocks-dir") if "--blocks-dir" in args else -1
-    if i < 0 or i + 1 >= len(args):
+    d = _arg(args, "--blocks-dir")
+    if not d:
         sys.stderr.write("usage: catalog.py --blocks-dir DIR\n")
         return 2
-    d = args[i + 1]
     if not os.path.isdir(d):
         sys.stderr.write(f"catalog error: blocks dir {d!r} does not exist\n")
         return 1

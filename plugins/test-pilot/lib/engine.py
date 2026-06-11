@@ -473,14 +473,15 @@ def _arg(args, flag, default=None):
 
 
 def _resolve_paths():
-    res = store.resolve(os.getcwd(), store.store_root())
+    cwd = os.getcwd()
+    res = store.resolve(cwd, store.store_root())
     if res["location"] == "none":
         raise EngineError("no test-pilot profile resolves here; run "
                           "test-pilot-init first")
     return {"state_dir": res["state_dir"],
             "manifests_dir": res["manifests_dir"],
             "blocks_dir": res["blocks_dir"],
-            "repo_root": os.getcwd()}, res
+            "repo_root": store.get_repo_root(cwd)}, res
 
 
 def main(argv):
