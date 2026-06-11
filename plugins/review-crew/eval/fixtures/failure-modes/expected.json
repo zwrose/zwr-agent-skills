@@ -16,7 +16,7 @@
       "taxonomy": "concurrency/race",
       "file": "src/handlers/redeem.ts",
       "lineHint": "if (!voucher || voucher.redeemed) {",
-      "why": "Check-then-act: two concurrent redeem requests both read redeemed=false, both pass the check, and the voucher's value is credited twice. Multi-tenant profile makes concurrent invocation realistic; no atomic guard (the update filter does not include redeemed: false). Double-credit moves money."
+      "why": "Check-then-act: two concurrent redeem requests both read redeemed=false, both pass the check, and the voucher's value is credited twice. Multi-tenant profile makes concurrent invocation realistic; no atomic guard (the update filter does not include redeemed: false). Double-credit moves money; adversarial concurrent requests (same user, two clients) make this trivially exploitable, which is why it sits at Critical."
     },
     {
       "dimension": "Failure-Mode",

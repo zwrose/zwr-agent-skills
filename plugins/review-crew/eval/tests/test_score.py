@@ -397,3 +397,21 @@ def test_smoke_failure_modes_perfect_recall(tmp_path):
     r = score.score_fixture(fdir, findings)
     assert r["recall"]["matched"] == r["recall"]["total"] == len(expected["seeds"])
     assert r["precision"]["traps_flagged"] == 0
+
+
+def test_smoke_bait_fixture_traps_are_live(tmp_path):
+    # Liveness: every bait trap's lineHint resolves AND fires when a finding
+    # is placed on it. traps_flagged == 0 is otherwise vacuously satisfiable
+    # by a dead trap whose lineHint never matches (no warning from score.py).
+    fdir = _real_fixture("failure-modes-bait")
+    expected = score.load_expected(fdir)
+    assert expected["seeds"] == []
+    with open(fdir + "/diff.txt") as f:
+        by_file = score._parse_diff_lines(f.read())
+    findings = []
+    for trap in expected["traps"]:
+        line = score._resolve_line(by_file, trap["file"], trap["lineHint"])
+        assert line is not None, f"trap lineHint does not resolve: {trap['lineHint']!r}"
+        findings.append({"dimension": "Failure-Mode", "file": trap["file"], "line": line})
+    r = score.score_fixture(fdir, findings)
+    assert r["precision"]["traps_flagged"] == len(expected["traps"])

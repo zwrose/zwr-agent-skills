@@ -1,0 +1,38 @@
+diff --git a/src/services/sync.ts b/src/services/sync.ts
+new file mode 100644
+--- /dev/null
++++ b/src/services/sync.ts
+@@ -0,0 +1,33 @@
++import { db } from "../db/client";
++import { retryFetch } from "../lib/retry-fetch";
++
++// Marks a note as imported. Single-user desktop app: one local process.
++export async function markImported(noteId) {
++  const note = await db.notes.findOne({ id: noteId });
++  if (!note || note.imported) {
++    return false;
++  }
++  await db.notes.update({ id: noteId }, { $set: { imported: true } });
++  return true;
++}
++
++// Pushes a backup payload through the project's wrapped outbound client.
++export async function pushBackup(payload) {
++  const res = await retryFetch("https://backup.example.com/api/push", {
++    method: "POST",
++    body: JSON.stringify(payload),
++    timeoutMs: 5000,
++    retries: 3,
++  });
++  return res.ok;
++}
++
++// Archives a note atomically via the data layer's transaction.
++export async function archiveNote(noteId) {
++  return db.transaction(async (tx) => {
++    const note = await tx.notes.findOne({ id: noteId });
++    await tx.archive.insert({ ...note, archivedAt: Date.now() });
++    await tx.notes.delete({ id: noteId });
++    return true;
++  });
++}
