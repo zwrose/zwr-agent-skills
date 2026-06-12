@@ -53,3 +53,20 @@ def test_cli_missing_dir_value_is_usage_error(tmp_path):
                         "--blocks-dir"], capture_output=True, text=True)
     assert r.returncode == 2
     assert "usage" in r.stderr
+
+
+# fl-code-code-004: a project block with missing/empty targets shows "(none declared — INVALID)".
+def test_generate_invalid_targets_shown_as_invalid(tmp_path):
+    d = str(tmp_path / "blocks")
+    os.makedirs(d)
+    # Block with no targets field.
+    open(os.path.join(d, "notargets.py"), "w").write(textwrap.dedent("""\
+        BLOCK_META = {
+            "description": "missing targets",
+            "config": {},
+        }
+    """))
+    text = catalog.generate(d)
+    assert "(none declared — INVALID)" in text
+    # Must not produce an empty inline code span for targets (`` `` ).
+    assert "**Targets:** ``" not in text

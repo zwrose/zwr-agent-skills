@@ -209,7 +209,30 @@ def test_run_command_non_string_element_in_command(tmp_path):
         blocks.run_block("run-command", "apply", cfg,
                          {"repoRoot": str(tmp_path)}, {})
     assert e.value.block == "run-command"
+    assert "non-empty" in str(e.value)
+
+
+# fl-code-code-001: JSON null (None) element must also be caught.
+def test_run_command_null_element_in_command_raises_block_error(tmp_path):
+    cfg = {"command": ["echo", None], "targets": ["t"]}
+    with pytest.raises(blocks.BlockError) as e:
+        blocks.run_block("run-command", "apply", cfg,
+                         {"repoRoot": str(tmp_path)}, {})
+    assert e.value.block == "run-command"
+    assert "non-empty" in str(e.value)
     assert "command" in str(e.value)
+
+
+def test_run_command_null_element_in_clean_command_raises_block_error(tmp_path):
+    cfg = {"command": ["echo", "hi"],
+           "cleanCommand": ["echo", None],
+           "targets": ["t"]}
+    with pytest.raises(blocks.BlockError) as e:
+        blocks.run_block("run-command", "clean", cfg,
+                         {"repoRoot": str(tmp_path)}, {})
+    assert e.value.block == "run-command"
+    assert "non-empty" in str(e.value)
+    assert "cleanCommand" in str(e.value)
 
 
 def test_run_command_empty_string_element_in_clean_command(tmp_path):

@@ -39,7 +39,8 @@ class BlockError(Exception):
 def read_block_meta(path):
     """Statically parse the module-level BLOCK_META literal dict."""
     try:
-        tree = ast.parse(open(path).read())
+        with open(path) as _fh:
+            tree = ast.parse(_fh.read())
     except (OSError, SyntaxError) as exc:
         raise BlockError(f"cannot parse block {path}: {exc}") from exc
     for node in tree.body:
@@ -155,8 +156,9 @@ def _run_command_block(op, config, ctx, runner):
     if not isinstance(argv, list) or not argv:
         raise BlockError(f"run-command requires config.{field} (argv array)",
                          block="run-command")
-    bad = next((a for a in argv if not isinstance(a, str) or not a), None)
-    if bad is not None:
+    _MISSING = object()
+    bad = next((a for a in argv if not isinstance(a, str) or not a), _MISSING)
+    if bad is not _MISSING:
         raise BlockError(
             f"run-command requires config.{field} to be an array of non-empty "
             f"strings; got {bad!r}", block="run-command")

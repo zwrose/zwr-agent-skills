@@ -1,8 +1,10 @@
 import json
 import os
+import textwrap
 
 import pytest
 
+import blocks as blocks_mod
 import engine
 import lock as lock_mod
 import state as state_mod
@@ -259,18 +261,13 @@ def test_status_drift_non_empty_after_config_change(tmp_path):
 # declares different branch/slot than the requested pair.
 def test_apply_manifest_rejects_mismatched_branch(tmp_path):
     paths = _paths(tmp_path)
-    # Write a manifest file at the key path for branch 'feat/x' but with
-    # branch='feat/y' inside the JSON.
-    mismatched = _manifest([_sc("a", str(tmp_path))], branch="feat/y")
-    _write_manifest(paths, mismatched)
+    # Write a manifest file at the key path for branch 'feat/y' (the
+    # requested branch), but with branch='feat/x' inside the JSON.
+    wrong_json = _manifest([_sc("a", str(tmp_path))], branch="feat/x")
+    key = store.artifact_key("feat/y")
+    p = os.path.join(paths["manifests_dir"], f"{key}.json")
+    json.dump(wrong_json, open(p, "w"))
     with pytest.raises(engine.EngineError) as e:
-        # Request 'feat/y' so the key resolves correctly, but swap JSON branch
-        # to 'feat/x' so we get a mismatch.
-        wrong_json = _manifest([_sc("a", str(tmp_path))], branch="feat/x")
-        import json as _json
-        key = store.artifact_key("feat/y")
-        p = os.path.join(paths["manifests_dir"], f"{key}.json")
-        _json.dump(wrong_json, open(p, "w"))
         engine.apply_manifest(paths, "feat/y", None, {}, allow_protected=False)
     assert "declares branch" in str(e.value) or "identity" in str(e.value)
 
@@ -286,3 +283,109 @@ def test_status_drift_non_empty_after_depends_on_change(tmp_path):
     _write_manifest(paths, m2)
     s = engine.status(paths)
     assert "b" in s["entries"][0]["drift"]
+
+
+# fl-arch-architecture-001: status() must carry manifest errors in manifestError
+# (not polluting drift) and leave drift as a pure list of scenario ids.
+def test_status_manifest_error_in_separate_field(tmp_path):
+    paths = _paths(tmp_path)
+    mp = _write_manifest(paths, _manifest([_sc("a", str(tmp_path))]))
+    engine.apply_manifest(paths, "feat/x", None, {}, allow_protected=False)
+    # Corrupt the manifest file so load_manifest raises EngineError.
+    with open(mp, "w") as fh:
+        fh.write("{invalid json")
+    s = engine.status(paths)
+    entry = s["entries"][0]
+    assert entry["drift"] == []  # drift is pure ids — no prose strings
+    assert entry["manifestError"] is not None
+    assert "unreadable" in entry["manifestError"].lower()
+
+
+# fl-test-test-001: a block-name-only change (same config) must dirty the scenario.
+_NOOP_BLOCK = """\
+    BLOCK_META = {"description": "noop", "config": {}, "targets": ["test-db"]}
+
+    def apply(config, ctx):
+        return {"ok": True}
+
+    def clean(result, ctx):
+        return {}
+
+    if __name__ == "__main__":
+        import json, sys
+        req = json.load(sys.stdin)
+        print(json.dumps({"ok": True}))
+"""
+
+
+def _make_noop_block(blocks_dir):
+    """Write a project block 'noop' into blocks_dir and return its name."""
+    os.makedirs(blocks_dir, exist_ok=True)
+    with open(os.path.join(blocks_dir, "noop.py"), "w") as fh:
+        fh.write(textwrap.dedent(_NOOP_BLOCK))
+    return "noop"
+
+
+def test_block_name_only_change_dirties_scenario(tmp_path):
+    """Changing only the block (same config+dependsOn) must trigger clean+reapply."""
+    paths = _paths(tmp_path)
+    # First apply uses run-command.
+    m1 = _manifest([_sc("a", str(tmp_path))])
+    _write_manifest(paths, m1)
+    engine.apply_manifest(paths, "feat/x", None, {}, allow_protected=False)
+    # Now swap block to "noop" with identical config structure (no command needed).
+    _make_noop_block(paths["blocks_dir"])
+    m2_sc = {"id": "a", "block": "noop", "config": {}, "dependsOn": []}
+    m2 = {"schemaVersion": 1, "branch": "feat/x", "slot": None,
+          "createdAt": "2026-06-11T00:00:00Z",
+          "updatedAt": "2026-06-11T00:00:00Z", "scenarios": [m2_sc]}
+    _write_manifest(paths, m2)
+    r = engine.apply_manifest(paths, "feat/x", None, {}, allow_protected=False)
+    assert "a" in r["cleaned"]
+    assert "a" in r["applied"]
+
+
+def test_status_drift_fires_on_block_name_change(tmp_path):
+    """Status drift must include a scenario whose block changed (no re-apply)."""
+    paths = _paths(tmp_path)
+    m1 = _manifest([_sc("a", str(tmp_path))])
+    _write_manifest(paths, m1)
+    engine.apply_manifest(paths, "feat/x", None, {}, allow_protected=False)
+    _make_noop_block(paths["blocks_dir"])
+    m2_sc = {"id": "a", "block": "noop", "config": {}, "dependsOn": []}
+    m2 = {"schemaVersion": 1, "branch": "feat/x", "slot": None,
+          "createdAt": "2026-06-11T00:00:00Z",
+          "updatedAt": "2026-06-11T00:00:00Z", "scenarios": [m2_sc]}
+    _write_manifest(paths, m2)
+    s = engine.status(paths)
+    assert "a" in s["entries"][0]["drift"]
+
+
+# fl-test-test-002: slot arm of the identity cross-check + slotted apply/clean.
+def test_apply_manifest_rejects_mismatched_slot(tmp_path):
+    """Manifest JSON declares slot='admin' but request uses slot='qa' -> EngineError."""
+    paths = _paths(tmp_path)
+    # Write a manifest at the key for (feat/x, qa) but with slot='admin' inside.
+    wrong_json = _manifest([_sc("a", str(tmp_path))], branch="feat/x", slot="admin")
+    key = store.artifact_key("feat/x", "qa")
+    p = os.path.join(paths["manifests_dir"], f"{key}.json")
+    json.dump(wrong_json, open(p, "w"))
+    with pytest.raises(engine.EngineError) as e:
+        engine.apply_manifest(paths, "feat/x", "qa", {}, allow_protected=False)
+    assert "identity" in str(e.value) or "declares branch" in str(e.value)
+
+
+def test_slotted_apply_and_clean_happy_path(tmp_path):
+    """Slotted apply uses key feat%2Fx~admin; clean removes it fully."""
+    paths = _paths(tmp_path)
+    m = _manifest([_sc("a", str(tmp_path))], branch="feat/x", slot="admin")
+    _write_manifest(paths, m)
+    r = engine.apply_manifest(paths, "feat/x", "admin", {}, allow_protected=False)
+    assert r["applied"] == ["a"]
+    # State key should be feat%2Fx~admin.
+    st = state_mod.load_state(os.path.join(paths["state_dir"], "state.json"))
+    assert "feat%2Fx~admin" in st["manifests"]
+    rc = engine.clean_manifest(paths, "feat/x", "admin")
+    assert rc["cleaned"] == ["a"]
+    st2 = state_mod.load_state(os.path.join(paths["state_dir"], "state.json"))
+    assert "feat%2Fx~admin" not in st2["manifests"]

@@ -110,14 +110,36 @@ def test_load_manifest_rejects_non_string_slot(tmp_path):
     bad = _manifest(slot=123)
     with pytest.raises(engine.EngineError) as e:
         engine.load_manifest(_write(tmp_path, bad))
-    assert "non-string slot" in str(e.value) or "slot" in str(e.value)
+    assert "non-string slot" in str(e.value)
 
 
 def test_load_manifest_rejects_invalid_slot_pattern(tmp_path):
     bad = _manifest(slot="bad~slot")
     with pytest.raises(engine.EngineError) as e:
         engine.load_manifest(_write(tmp_path, bad))
-    assert "invalid slot" in str(e.value) or "slot" in str(e.value)
+    assert "invalid slot" in str(e.value)
+
+
+# fl-code-code-002: non-dict scenario elements raise EngineError (not AttributeError).
+def test_load_manifest_rejects_non_dict_scenario(tmp_path):
+    bad = _manifest()
+    bad["scenarios"] = ["a_string_not_a_dict"]
+    with pytest.raises(engine.EngineError) as e:
+        engine.load_manifest(_write(tmp_path, bad))
+    assert "every scenario must be an object" in str(e.value)
+
+
+# fl-code-code-002: non-dict step elements in plan record raise EngineError.
+def test_load_plan_record_rejects_non_dict_step(tmp_path):
+    m = engine.load_manifest(_write(tmp_path, _manifest()))
+    rec = {"schemaVersion": 1, "branch": "feat/x", "slot": None,
+           "createdAt": "2026-06-11T00:00:00Z",
+           "steps": ["a_string_not_a_dict"]}
+    p = str(tmp_path / "feat%2Fx.plan.json")
+    json.dump(rec, open(p, "w"))
+    with pytest.raises(engine.EngineError) as e:
+        engine.load_plan_record(p, m)
+    assert "every step must be an object" in str(e.value)
 
 
 # r2-code-code-005: dependsOn must be a list of strings, not a string.

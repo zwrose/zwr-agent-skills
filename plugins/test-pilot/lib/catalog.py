@@ -29,9 +29,13 @@ def generate(blocks_dir):
                             "(required, non-empty)"))
     for name, info in sorted(blocks.discover_blocks(blocks_dir).items()):
         meta = info["meta"]
+        raw_targets = meta.get("targets", [])
+        if raw_targets and all(isinstance(t, str) and t for t in raw_targets):
+            targets_text = "`" + "`, `".join(raw_targets) + "`"
+        else:
+            targets_text = "(none declared — INVALID)"
         out.append(_section(name, meta.get("description", "(no description)"),
-                            meta.get("config", {}),
-                            "`" + "`, `".join(meta.get("targets", [])) + "`"))
+                            meta.get("config", {}), targets_text))
     return "\n".join(out)
 
 

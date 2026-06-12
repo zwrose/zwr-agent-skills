@@ -17,13 +17,15 @@ import sys
 
 MARKER_FAMILIES = ("plan", "results")
 # Keys come from store.artifact_key(): %-encoded branch + optional ~slot.
-_KEY_RE = re.compile(r"^[^\s]+$")
+# Legitimate keys are %-encoded so '/' never appears literally; '..' is also
+# forbidden (git refnames disallow it, sanitize_branch %-encodes '/').
+_KEY_RE = re.compile(r"^[^\s/\\]+$")
 
 
 def render_marker(family, key):
     if family not in MARKER_FAMILIES:
         raise ValueError(f"unknown marker family {family!r}")
-    if not _KEY_RE.match(key) or "-->" in key:
+    if not _KEY_RE.match(key) or "-->" in key or ".." in key:
         raise ValueError(
             f"marker key {key!r} is not a sanitized artifact key; derive it "
             f"with store.artifact_key()")
@@ -60,20 +62,29 @@ def merge_checkboxes(old_body, new_body):
 
 
 _SCRUB_PATTERNS = [
+    # Pattern 1: line-anchored HTTP headers (e.g. "Authorization: Bearer ...")
     (re.compile(r"(?im)^(\s*(?:authorization|proxy-authorization|cookie|"
-                r"set-cookie|x-api-key)\s*:\s*).+$"), r"\1[REDACTED]"),
+                r"set-cookie|x-api-key|x-api[_-]?key)\s*:\s*).+$"), r"\1[REDACTED]"),
+    # Pattern 1b: mid-line x-api-key (dict-dump and request-log forms)
+    # e.g. {'x-api-key': 'abc123'} or "request headers: x-api-key: abc123"
+    # Authorization is handled by pattern 1 (line-anchored) and pattern 2 (bearer).
+    (re.compile(r"(?i)(?<!\w)(x[_-]?api[_-]?key)\s*['\"]?\s*:\s*['\"]?\S+['\"]?"),
+     r"\1: [REDACTED]"),
+    # Pattern 2: Bearer tokens
     (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}"), "Bearer [REDACTED]"),
+    # Pattern 3: key=value query/form params
     (re.compile(r"(?i)\b(session[_-]?id|session|sid|token|api[_-]?key|"
                 r"access[_-]?token|refresh[_-]?token|password|passwd|pwd|"
-                r"client[_-]?secret)=([^&\s;\"']+)"),
+                r"client[_-]?secret|x[_-]?api[_-]?key)=([^&\s;\"']+)"),
      r"\1=[REDACTED]"),
-    # Colon-separator (JSON/object) forms: "key": "value" or 'key': 'value'
-    # Require quoted value AND quoted key to avoid matching benign prose like
-    # "token bucket algorithm limits requests".
-    # Value may contain any chars except the closing quote.
-    (re.compile(r"(?i)([\"'](?:session[_-]?id|session|sid|token|api[_-]?key|"
-                r"access[_-]?token|refresh[_-]?token|password|passwd|pwd|"
-                r"client[_-]?secret)[\"']\s*:\s*)(?:\"[^\"]*\"|'[^']*')"),
+    # Pattern 4: Colon-separator (JSON/object/dict) forms: "key": "value" or
+    # 'key': 'value'. Tolerates optional backslash before each quote (so
+    # stringified-JSON forms like \"access_token\":\"x\" are caught too).
+    # Value class excludes newlines to prevent cross-line over-redaction.
+    (re.compile(r"(?i)(\\?[\"'](?:session[_-]?id|session|sid|token|"
+                r"api[_-]?key|access[_-]?token|refresh[_-]?token|password|"
+                r"passwd|pwd|client[_-]?secret)\\?[\"']\s*:\s*)"
+                r"(?:\\?\"[^\"\n]*\\?\"|\\?'[^'\n]*\\?')"),
      r"\1[REDACTED]"),
     # URI userinfo credentials: scheme://user:pass@host -> scheme://[REDACTED]@host
     (re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://[^/\s:@]+):([^@\s/]+)@"),
@@ -195,7 +206,8 @@ def main(argv):
                 sys.stderr.write(f"error: --pr must be a numeric PR number, "
                                  f"got {pr!r}\n")
                 return 2
-            body = open(body_file).read()
+            with open(body_file) as _fh:
+                body = _fh.read()
             out = upsert(pr, family, key, body, _arg(args, "--plans-dir"))
             sys.stdout.write(json.dumps({"ok": True, **out}) + "\n")
             return 0

@@ -136,6 +136,26 @@ def test_validate_plan_dangling_scenario_id(tmp_path):
     assert "missing" in out["error"]
 
 
+# fl-code-code-003: validate-plan must apply the same branch/slot identity check
+# as apply_manifest — a manifest with wrong JSON branch must be rejected.
+def test_validate_plan_rejects_mismatched_branch(tmp_path):
+    repo, env, _, key = _setup_repo_with_plan(
+        tmp_path, [{"id": "s1", "instruction": "x", "expected": "y",
+                    "scenarioIds": ["a"]}])
+    root = env["TEST_PILOT_STORE_ROOT"]
+    c = store.create(repo, "global", root)
+    mp = os.path.join(c["manifests_dir"], f"{key}.json")
+    m = json.load(open(mp))
+    # Corrupt the JSON to declare a different branch.
+    m["branch"] = "wrong-branch"
+    json.dump(m, open(mp, "w"))
+    r = _cli(repo, env, "validate-plan", "--branch", "feat/x")
+    assert r.returncode == 1
+    out = json.loads(r.stdout)
+    assert out["ok"] is False
+    assert "identity" in out["error"] or "declares branch" in out["error"]
+
+
 # r2-test-test-003: invalid slot must produce structured JSON error (exit 1).
 def test_invalid_slot_produces_json_error(tmp_path):
     repo, env, _ = _setup_repo(tmp_path)

@@ -242,6 +242,67 @@ def test_upsert_deletes_fallback_after_post(monkeypatch, tmp_path):
     assert not os.path.exists(fallback)
 
 
+# fl-secu-security-001: scrub catches backslash-escaped quotes (stringified JSON).
+def test_scrub_catches_escaped_json_token():
+    s = pc.scrub
+    # Stringified-JSON form: \"access_token\":\"eyJhbGc...\"
+    raw = r'{"access_token": \"eyJhbGciOiJIUzI1NiJ9\"}'
+    out = s(raw)
+    assert "[REDACTED]" in out
+    assert "eyJhbGciOiJIUzI1NiJ9" not in out
+
+
+# fl-secu-security-002: unbalanced quote must not span newlines / cascade.
+def test_scrub_unbalanced_quote_does_not_span_newlines():
+    # First value is truncated (unbalanced closing quote).
+    # The second secret on the next line must STILL be redacted.
+    text = '"password": "truncated\n"token": "SECRET123"'
+    out = pc.scrub(text)
+    assert "SECRET123" not in out
+    assert "[REDACTED]" in out
+    # The intervening newline and second-line key must survive (not be swallowed).
+    assert "\n" in out
+
+
+# fl-secu-security-003: dict-dump x-api-key and mid-line header forms are caught.
+def test_scrub_catches_dict_dump_x_api_key():
+    s = pc.scrub
+    # Python dict dump form.
+    assert "[REDACTED]" in s("{'x-api-key': 'abc123xyz'}")
+    assert "abc123xyz" not in s("{'x-api-key': 'abc123xyz'}")
+    # Mid-line x-api-key header in a log line.
+    assert "[REDACTED]" in s("request headers: x-api-key: abc123xyz")
+    assert "abc123xyz" not in s("request headers: x-api-key: abc123xyz")
+    # Mid-line Authorization: Bearer is caught by the existing bearer pattern.
+    assert "[REDACTED]" in s("see also: bearer tok1234567890abc")
+    assert "tok1234567890abc" not in s("see also: bearer tok1234567890abc")
+
+
+def test_scrub_negative_x_api_key_benign_unchanged():
+    """A key name that only partially matches must not trigger redaction."""
+    benign = "x-request-id: abc123"
+    assert pc.scrub(benign) == benign
+
+
+# fl-secu-security-004: render_marker and fallback_path reject traversal keys.
+def test_render_marker_rejects_path_separator_in_key():
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        pc.render_marker("plan", "../../etc/passwd")
+
+
+def test_render_marker_rejects_backslash_in_key():
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        pc.render_marker("plan", "key\\name")
+
+
+def test_render_marker_rejects_dotdot_in_key():
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        pc.render_marker("plan", "feat%2Fx..evil")
+
+
 def test_fallback_lifecycle(tmp_path):
     plans = str(tmp_path / "plans")
     p = pc.fallback_path(plans, "feat%2Fx~admin", "plan")

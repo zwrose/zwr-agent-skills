@@ -61,6 +61,10 @@ def load_manifest(path):
     scenarios = m.get("scenarios")
     if not isinstance(scenarios, list):
         raise EngineError(f"manifest {path}: `scenarios` must be a list")
+    if any(not isinstance(sc, dict) for sc in scenarios):
+        raise EngineError(
+            f"manifest {path}: every scenario must be an object (dict), "
+            f"not a string or number")
     ids = [sc.get("id") for sc in scenarios]
     if any(not isinstance(i, str) or not i for i in ids):
         raise EngineError(f"manifest {path}: every scenario needs a string id")
@@ -120,6 +124,10 @@ def load_plan_record(path, manifest):
     if not isinstance(rec.get("steps"), list):
         raise EngineError(
             f"plan record {path}: missing or non-list `steps` field")
+    if any(not isinstance(step, dict) for step in rec["steps"]):
+        raise EngineError(
+            f"plan record {path}: every step must be an object (dict), "
+            f"not a string or number")
     ids = {sc["id"] for sc in manifest["scenarios"]}
     for step in rec["steps"]:
         for f in ("id", "instruction", "expected"):
@@ -148,7 +156,8 @@ _CONFIG_RE = re.compile(r"```json\s+test-pilot-config\s*\n(.*?)\n```", re.S)
 def load_profile_config(profile_path):
     """Parse the one machine-readable fenced block out of profile.md."""
     try:
-        text = open(profile_path).read()
+        with open(profile_path) as _fh:
+            text = _fh.read()
     except OSError as exc:
         raise EngineError(f"cannot read profile {profile_path}: {exc}") from exc
     m = _CONFIG_RE.search(text)
@@ -311,15 +320,21 @@ def plan_changes(manifest, mstate):
     return to_clean, to_apply, skipped
 
 
+def _check_manifest_identity(manifest, path, branch, slot):
+    """Raise EngineError if the manifest's declared branch/slot != the requested pair."""
+    if manifest["branch"] != branch or manifest.get("slot") != slot:
+        raise EngineError(
+            f"manifest at {path} declares branch="
+            f"{manifest['branch']!r} slot={manifest.get('slot')!r}, not "
+            f"({branch!r}, {slot!r}) — identity lives in the JSON")
+
+
 def apply_manifest(paths, branch, slot, profile_cfg, allow_protected,
                    dry_run=False):
     key = store.artifact_key(branch, slot)
-    manifest = load_manifest(_manifest_path(paths, key))
-    if manifest["branch"] != branch or manifest.get("slot") != slot:
-        raise EngineError(
-            f"manifest at {_manifest_path(paths, key)} declares branch="
-            f"{manifest['branch']!r} slot={manifest.get('slot')!r}, not "
-            f"({branch!r}, {slot!r}) — identity lives in the JSON")
+    mp = _manifest_path(paths, key)
+    manifest = load_manifest(mp)
+    _check_manifest_identity(manifest, mp, branch, slot)
     project_blocks = blocks.discover_blocks(paths["blocks_dir"])
     st_path = _state_path(paths)
 
@@ -436,6 +451,7 @@ def status(paths):
     for key, mstate in sorted(st["manifests"].items()):
         mp = _manifest_path(paths, key)
         drift = []
+        manifest_error = None
         if os.path.exists(mp):
             try:
                 manifest = load_manifest(mp)
@@ -445,11 +461,12 @@ def status(paths):
                     if sc is None or _scenario_dirty(rec, sc):
                         drift.append(sid)
             except EngineError as exc:
-                drift = [f"manifest unreadable: {exc}"]
+                manifest_error = str(exc)
         entries.append({"key": key, "branch": mstate["branch"],
                         "slot": mstate.get("slot"),
                         "applied": len(mstate["scenarios"]),
                         "drift": sorted(drift),
+                        "manifestError": manifest_error,
                         "orphan": not os.path.exists(mp)})
     lp = _lock_path(paths)
     holder = lock.read_holder(lp) if os.path.exists(lp) else None
@@ -517,7 +534,9 @@ def main(argv):
                 raise EngineError("validate-plan requires --branch")
             slot = _arg(args, "--slot")
             key = store.artifact_key(branch, slot)
-            manifest = load_manifest(_manifest_path(paths, key))
+            mp = _manifest_path(paths, key)
+            manifest = load_manifest(mp)
+            _check_manifest_identity(manifest, mp, branch, slot)
             plan_path = os.path.join(paths["manifests_dir"], f"{key}.plan.json")
             rec = load_plan_record(plan_path, manifest)
             out = {"ok": True, "command": "validate-plan", "key": key,
