@@ -163,3 +163,17 @@ def test_scenario_ids_string_instead_of_list_is_error(tmp_path):
     with pytest.raises(engine.EngineError) as e:
         engine.load_plan_record(p, m)
     assert "scenarioIds" in str(e.value)
+
+
+# r3v-0-code-001: declared slot mismatch is rejected even when branch is absent from record.
+def test_load_plan_record_rejects_slot_mismatch_when_branch_absent(tmp_path):
+    """A plan record with no branch but a mismatched slot must raise EngineError."""
+    m = engine.load_manifest(_write(tmp_path, _manifest()))
+    rec = {"schemaVersion": 1, "slot": "admin",
+           "steps": [{"id": "s1", "instruction": "x", "expected": "y",
+                      "scenarioIds": ["a"]}]}
+    p = str(tmp_path / "feat%2Fx.plan.json")
+    json.dump(rec, open(p, "w"))
+    with pytest.raises(engine.EngineError) as e:
+        engine.load_plan_record(p, m, branch="feat/x", slot="qa")
+    assert "slot" in str(e.value)

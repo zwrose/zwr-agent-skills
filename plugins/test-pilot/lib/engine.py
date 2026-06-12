@@ -117,9 +117,11 @@ def topo_order(scenarios):
 def load_plan_record(path, manifest, branch=None, slot=None):
     """Load and validate a plan record.
 
-    When branch and slot are supplied, the plan record's declared branch/slot
-    fields (if present) are cross-checked for identity — the same invariant
-    enforced on the manifest by _check_manifest_identity.
+    When branch and/or slot are supplied, each declared field in the plan
+    record is cross-checked independently — the same invariant enforced on the
+    manifest by _check_manifest_identity.  A field absent from the record is
+    treated as informational-only and is not checked; a field present in the
+    record must match the corresponding requested value.
     """
     rec = _load_json(path, "plan record")
     v = rec.get("schemaVersion")
@@ -127,16 +129,16 @@ def load_plan_record(path, manifest, branch=None, slot=None):
         raise EngineError(
             f"plan record {path} has schemaVersion {v!r}; this engine "
             f"supports {PLAN_RECORD_SCHEMA_VERSION}.")
-    # Identity cross-check: if the plan record declares branch/slot, they must
-    # match the requested pair (same rule as _check_manifest_identity for the
-    # manifest). Fields absent from the record are treated as informational-only
-    # and are not checked.
-    if branch is not None and "branch" in rec:
-        if rec["branch"] != branch or rec.get("slot") != slot:
-            raise EngineError(
-                f"plan record at {path} declares branch="
-                f"{rec['branch']!r} slot={rec.get('slot')!r}, not "
-                f"({branch!r}, {slot!r}) — identity lives in the JSON")
+    # Identity cross-check: each declared field is checked independently.
+    # If a field is absent from the record it is skipped (not checked).
+    if branch is not None and "branch" in rec and rec["branch"] != branch:
+        raise EngineError(
+            f"plan record at {path} declares branch={rec['branch']!r}, not "
+            f"{branch!r} — identity lives in the JSON")
+    if slot is not None and "slot" in rec and rec["slot"] != slot:
+        raise EngineError(
+            f"plan record at {path} declares slot={rec['slot']!r}, not "
+            f"{slot!r} — identity lives in the JSON")
     if not isinstance(rec.get("steps"), list):
         raise EngineError(
             f"plan record {path}: missing or non-list `steps` field")

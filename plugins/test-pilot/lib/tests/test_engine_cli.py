@@ -187,3 +187,42 @@ def test_invalid_slot_produces_json_error(tmp_path):
     assert out["ok"] is False
     assert out["command"] == "apply"
     assert "slot" in out["error"].lower()
+
+
+# r3v-4-test-002: validate-plan must reject a plan record whose declared slot disagrees
+# with the requested slot, even when the branch matches.
+def test_validate_plan_rejects_mismatched_plan_record_slot(tmp_path):
+    """Plan record declares wrong slot (branch correct) -> EngineError mentioning slot."""
+    repo, env, _, key = _setup_repo_with_plan(
+        tmp_path, [{"id": "s1", "instruction": "x", "expected": "y",
+                    "scenarioIds": ["a"]}])
+    root = env["TEST_PILOT_STORE_ROOT"]
+    c = store.create(repo, "global", root)
+    plan_path = os.path.join(c["manifests_dir"], f"{key}.plan.json")
+    rec = json.load(open(plan_path))
+    # Declare correct branch but a mismatched slot.
+    rec["branch"] = "feat/x"
+    rec["slot"] = "other"
+    json.dump(rec, open(plan_path, "w"))
+    r = _cli(repo, env, "validate-plan", "--branch", "feat/x", "--slot", "qa")
+    # Need matching manifest+plan key for slot=qa; write them for the qa slot.
+    root = env["TEST_PILOT_STORE_ROOT"]
+    c = store.create(repo, "global", root)
+    qa_key = store.artifact_key("feat/x", "qa")
+    # Copy the manifest to the qa-slotted path.
+    orig_mp = os.path.join(c["manifests_dir"], f"{key}.json")
+    m = json.load(open(orig_mp))
+    m["slot"] = "qa"
+    qa_mp = os.path.join(c["manifests_dir"], f"{qa_key}.json")
+    json.dump(m, open(qa_mp, "w"))
+    # Write the plan record with wrong slot.
+    qa_plan_path = os.path.join(c["manifests_dir"], f"{qa_key}.plan.json")
+    qa_rec = {"schemaVersion": 1, "branch": "feat/x", "slot": "other",
+              "steps": [{"id": "s1", "instruction": "x", "expected": "y",
+                         "scenarioIds": ["a"]}]}
+    json.dump(qa_rec, open(qa_plan_path, "w"))
+    r = _cli(repo, env, "validate-plan", "--branch", "feat/x", "--slot", "qa")
+    assert r.returncode == 1
+    out = json.loads(r.stdout)
+    assert out["ok"] is False
+    assert "slot" in out["error"]

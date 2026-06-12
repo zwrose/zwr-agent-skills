@@ -17,6 +17,9 @@ def test_marker_render_uses_key_verbatim():
     # test-003: --> branch in isolation (no whitespace, only --> violation)
     with pytest.raises(ValueError):
         pc.render_marker("plan", "evil-->key")
+    # r3v-3-test-001: trailing newline is rejected (fullmatch, not $-anchored match)
+    with pytest.raises(ValueError):
+        pc.render_marker("plan", "feat%2Fx\n")
 
 
 def _c(cid, author, body):
@@ -129,6 +132,23 @@ def test_parse_paginated_arrays_handles_concatenated_pages():
 def test_scrub_is_idempotent():
     s = "Authorization: Bearer abc123def456\nplain text"
     assert pc.scrub(pc.scrub(s)) == pc.scrub(s)
+
+
+# r3v-2-security-001: pattern 1b must redact escaped-quote (stringified-JSON) x-api-key.
+def test_scrub_catches_escaped_json_x_api_key():
+    s = pc.scrub
+    raw = r'{"x-api-key": \"sk-live-abc123\"}'
+    out = s(raw)
+    assert "sk-live-abc123" not in out
+    assert "[REDACTED]" in out
+
+
+# r3v-1-code-002: scrub is idempotent for dict-dump x-api-key forms (brace survives re-scrub).
+def test_scrub_is_idempotent_dict_dump_x_api_key():
+    raw = "{'x-api-key': 'abc123xyz'}"
+    once = pc.scrub(raw)
+    twice = pc.scrub(once)
+    assert once == twice
 
 
 # test-001: upsert unit tests via monkeypatched seams

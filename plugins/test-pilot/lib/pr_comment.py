@@ -88,10 +88,13 @@ _SCRUB_PATTERNS = [
     # Pattern 1b: mid-line x-api-key (dict-dump and request-log forms)
     # e.g. {'x-api-key': 'abc123'} or {'x-api-key': 'abc def'} (space in value)
     # or "request headers: x-api-key: abc123".
+    # or stringified-JSON form: {\"x-api-key\": \"sk-live-abc123\"}.
     # Authorization is handled by pattern 1 (line-anchored) and pattern 2 (bearer).
-    # Value alternation: quoted (full string, no newline) first, then unquoted \S+.
-    (re.compile(r"""(?i)(?<!\w)(x[_-]?api[_-]?key)\s*['\"]?\s*:\s*"""
-                r"""(?:\"[^\"\n]*\"|'[^'\n]*'|\S+)"""),
+    # Value alternation: quoted (full string, no newline, backslash-escaped quote
+    # tolerance mirrors pattern 4) first, then unquoted fallback (excludes
+    # structural chars }/'", so re-scrubbing [REDACTED] is idempotent).
+    (re.compile(r"""(?i)(?<!\w)(x[_-]?api[_-]?key)(?:\\?[\"'])?\s*:\s*"""
+                r"""(?:\\?\"[^\"\n]*\\?\"|\\?'[^'\n]*\\?'|[^\s}'",]+)"""),
      r"\1: [REDACTED]"),
     # Pattern 2: Bearer tokens
     (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}"), "Bearer [REDACTED]"),
