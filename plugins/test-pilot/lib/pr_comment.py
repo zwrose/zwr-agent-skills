@@ -17,15 +17,26 @@ import sys
 
 MARKER_FAMILIES = ("plan", "results")
 # Keys come from store.artifact_key(): %-encoded branch + optional ~slot.
-# Legitimate keys are %-encoded so '/' never appears literally; '..' is also
-# forbidden (git refnames disallow it, sanitize_branch %-encodes '/').
-_KEY_RE = re.compile(r"^[^\s/\\]+$")
+# Legitimate keys are %-encoded so '/' never appears literally; '..' and '-->'
+# are also forbidden. fullmatch closes the trailing-newline gap ($ matches
+# before \n in Python; fullmatch does not).
+_KEY_RE = re.compile(r"[^\s/\\]+")
+
+
+def _valid_marker_key(key):
+    """Return True iff key is an acceptable sanitized artifact key.
+
+    Combines: no whitespace/slash/backslash (via _KEY_RE fullmatch, which
+    unlike match/search also rejects trailing newlines), no '-->' sequence
+    (HTML comment close), and no '..' sequence (path-traversal defense).
+    """
+    return bool(_KEY_RE.fullmatch(key)) and "-->" not in key and ".." not in key
 
 
 def render_marker(family, key):
     if family not in MARKER_FAMILIES:
         raise ValueError(f"unknown marker family {family!r}")
-    if not _KEY_RE.match(key) or "-->" in key or ".." in key:
+    if not _valid_marker_key(key):
         raise ValueError(
             f"marker key {key!r} is not a sanitized artifact key; derive it "
             f"with store.artifact_key()")
@@ -61,29 +72,38 @@ def merge_checkboxes(old_body, new_body):
     return "\n".join(out)
 
 
+# Shared sensitive key-name alternation used by patterns 3 and 4.
+# x-api-key is intentionally absent here: it is handled by patterns 1 and 1b
+# (the colon-separator forms are disambiguated there).
+_SECRET_KEY_NAMES = (
+    r"session[_-]?id|session|sid|token|api[_-]?key|"
+    r"access[_-]?token|refresh[_-]?token|password|passwd|pwd|"
+    r"client[_-]?secret"
+)
+
 _SCRUB_PATTERNS = [
     # Pattern 1: line-anchored HTTP headers (e.g. "Authorization: Bearer ...")
     (re.compile(r"(?im)^(\s*(?:authorization|proxy-authorization|cookie|"
                 r"set-cookie|x-api-key|x-api[_-]?key)\s*:\s*).+$"), r"\1[REDACTED]"),
     # Pattern 1b: mid-line x-api-key (dict-dump and request-log forms)
-    # e.g. {'x-api-key': 'abc123'} or "request headers: x-api-key: abc123"
+    # e.g. {'x-api-key': 'abc123'} or {'x-api-key': 'abc def'} (space in value)
+    # or "request headers: x-api-key: abc123".
     # Authorization is handled by pattern 1 (line-anchored) and pattern 2 (bearer).
-    (re.compile(r"(?i)(?<!\w)(x[_-]?api[_-]?key)\s*['\"]?\s*:\s*['\"]?\S+['\"]?"),
+    # Value alternation: quoted (full string, no newline) first, then unquoted \S+.
+    (re.compile(r"""(?i)(?<!\w)(x[_-]?api[_-]?key)\s*['\"]?\s*:\s*"""
+                r"""(?:\"[^\"\n]*\"|'[^'\n]*'|\S+)"""),
      r"\1: [REDACTED]"),
     # Pattern 2: Bearer tokens
     (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}"), "Bearer [REDACTED]"),
     # Pattern 3: key=value query/form params
-    (re.compile(r"(?i)\b(session[_-]?id|session|sid|token|api[_-]?key|"
-                r"access[_-]?token|refresh[_-]?token|password|passwd|pwd|"
-                r"client[_-]?secret|x[_-]?api[_-]?key)=([^&\s;\"']+)"),
+    (re.compile(r"(?i)\b(" + _SECRET_KEY_NAMES + r"|x[_-]?api[_-]?key)"
+                r"=([^&\s;\"']+)"),
      r"\1=[REDACTED]"),
     # Pattern 4: Colon-separator (JSON/object/dict) forms: "key": "value" or
     # 'key': 'value'. Tolerates optional backslash before each quote (so
     # stringified-JSON forms like \"access_token\":\"x\" are caught too).
     # Value class excludes newlines to prevent cross-line over-redaction.
-    (re.compile(r"(?i)(\\?[\"'](?:session[_-]?id|session|sid|token|"
-                r"api[_-]?key|access[_-]?token|refresh[_-]?token|password|"
-                r"passwd|pwd|client[_-]?secret)\\?[\"']\s*:\s*)"
+    (re.compile(r"(?i)(\\?[\"'](?:" + _SECRET_KEY_NAMES + r")\\?[\"']\s*:\s*)"
                 r"(?:\\?\"[^\"\n]*\\?\"|\\?'[^'\n]*\\?')"),
      r"\1[REDACTED]"),
     # URI userinfo credentials: scheme://user:pass@host -> scheme://[REDACTED]@host

@@ -85,6 +85,16 @@ def discover_blocks(blocks_dir):
     return found
 
 
+def valid_targets(value):
+    """Return True iff value is a non-empty list of non-empty strings.
+
+    Single source of truth for the targets validity rule used by both
+    block_targets() (gate enforcement) and catalog.generate() (INVALID marker).
+    """
+    return (isinstance(value, list) and bool(value)
+            and all(isinstance(t, str) and t for t in value))
+
+
 def block_targets(name, config, project_blocks):
     """Declared targets for one scenario. Missing/empty is a validation
     error — the gate never treats an undeclared block as unprotected."""
@@ -94,8 +104,7 @@ def block_targets(name, config, project_blocks):
         targets = project_blocks[name]["meta"].get("targets")
     else:
         raise BlockError(f"unknown block {name!r}", block=name)
-    if (not isinstance(targets, list) or not targets
-            or not all(isinstance(t, str) and t for t in targets)):
+    if not valid_targets(targets):
         raise BlockError(
             f"block {name!r} declares no targets; every block must declare "
             f"the surfaces it touches (non-empty list of strings)", block=name)

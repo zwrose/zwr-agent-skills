@@ -156,6 +156,28 @@ def test_validate_plan_rejects_mismatched_branch(tmp_path):
     assert "identity" in out["error"] or "declares branch" in out["error"]
 
 
+# r2v-code-code-003: validate-plan must reject a plan record whose declared
+# branch/slot fields disagree with the requested pair.
+def test_validate_plan_rejects_mismatched_plan_record_branch(tmp_path):
+    """Plan record declares wrong branch -> EngineError with identity message."""
+    repo, env, _, key = _setup_repo_with_plan(
+        tmp_path, [{"id": "s1", "instruction": "x", "expected": "y",
+                    "scenarioIds": ["a"]}])
+    root = env["TEST_PILOT_STORE_ROOT"]
+    c = store.create(repo, "global", root)
+    plan_path = os.path.join(c["manifests_dir"], f"{key}.plan.json")
+    rec = json.load(open(plan_path))
+    # Inject a mismatched branch into the plan record.
+    rec["branch"] = "wrong-branch"
+    rec["slot"] = None
+    json.dump(rec, open(plan_path, "w"))
+    r = _cli(repo, env, "validate-plan", "--branch", "feat/x")
+    assert r.returncode == 1
+    out = json.loads(r.stdout)
+    assert out["ok"] is False
+    assert "identity" in out["error"] or "declares branch" in out["error"]
+
+
 # r2-test-test-003: invalid slot must produce structured JSON error (exit 1).
 def test_invalid_slot_produces_json_error(tmp_path):
     repo, env, _ = _setup_repo(tmp_path)

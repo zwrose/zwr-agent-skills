@@ -30,7 +30,7 @@ def generate(blocks_dir):
     for name, info in sorted(blocks.discover_blocks(blocks_dir).items()):
         meta = info["meta"]
         raw_targets = meta.get("targets", [])
-        if raw_targets and all(isinstance(t, str) and t for t in raw_targets):
+        if blocks.valid_targets(raw_targets):
             targets_text = "`" + "`, `".join(raw_targets) + "`"
         else:
             targets_text = "(none declared — INVALID)"

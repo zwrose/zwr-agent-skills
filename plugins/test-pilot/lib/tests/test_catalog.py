@@ -70,3 +70,22 @@ def test_generate_invalid_targets_shown_as_invalid(tmp_path):
     assert "(none declared — INVALID)" in text
     # Must not produce an empty inline code span for targets (`` `` ).
     assert "**Targets:** ``" not in text
+
+
+# r2v-arch-architecture-001: string-valued targets must also show INVALID (not char-split).
+def test_generate_string_targets_shown_as_invalid(tmp_path):
+    """A block with targets="test-db" (string, not list) must render INVALID,
+    not a char-split list of individual characters."""
+    d = str(tmp_path / "blocks")
+    os.makedirs(d)
+    open(os.path.join(d, "strblock.py"), "w").write(textwrap.dedent("""\
+        BLOCK_META = {
+            "description": "string targets",
+            "config": {},
+            "targets": "test-db",
+        }
+    """))
+    text = catalog.generate(d)
+    assert "(none declared — INVALID)" in text
+    # Ensure individual characters from "test-db" are NOT rendered as targets.
+    assert "`t`, `e`" not in text

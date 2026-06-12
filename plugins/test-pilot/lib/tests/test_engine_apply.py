@@ -302,43 +302,51 @@ def test_status_manifest_error_in_separate_field(tmp_path):
 
 
 # fl-test-test-001: a block-name-only change (same config) must dirty the scenario.
-_NOOP_BLOCK = """\
-    BLOCK_META = {"description": "noop", "config": {}, "targets": ["test-db"]}
+# Two project blocks with IDENTICAL BLOCK_META (config:{}, targets:["test-db"]).
+# Only the block name differs, so swapping noop_a -> noop_b isolates the
+# rec["block"] != sc["block"] arm of _scenario_dirty from all hash arms.
+_NOOP_BLOCK_BODY = (
+    'BLOCK_META = {"description": "noop", "config": {}, "targets": ["test-db"]}\n'
+    '\n'
+    'def apply(config, ctx):\n'
+    '    return {"ok": True}\n'
+    '\n'
+    'def clean(result, ctx):\n'
+    '    return {}\n'
+    '\n'
+    'if __name__ == "__main__":\n'
+    '    import json, sys\n'
+    '    req = json.load(sys.stdin)\n'
+    '    print(json.dumps({"ok": True}))\n'
+)
 
-    def apply(config, ctx):
-        return {"ok": True}
 
-    def clean(result, ctx):
-        return {}
-
-    if __name__ == "__main__":
-        import json, sys
-        req = json.load(sys.stdin)
-        print(json.dumps({"ok": True}))
-"""
-
-
-def _make_noop_block(blocks_dir):
-    """Write a project block 'noop' into blocks_dir and return its name."""
+def _make_noop_pair(blocks_dir):
+    """Write noop_a.py and noop_b.py with identical BLOCK_META into blocks_dir."""
     os.makedirs(blocks_dir, exist_ok=True)
-    with open(os.path.join(blocks_dir, "noop.py"), "w") as fh:
-        fh.write(textwrap.dedent(_NOOP_BLOCK))
-    return "noop"
+    for name in ("noop_a", "noop_b"):
+        with open(os.path.join(blocks_dir, f"{name}.py"), "w") as fh:
+            fh.write(_NOOP_BLOCK_BODY)
 
 
 def test_block_name_only_change_dirties_scenario(tmp_path):
-    """Changing only the block (same config+dependsOn) must trigger clean+reapply."""
+    """Changing ONLY the block name (identical config+dependsOn) must trigger
+    clean+reapply.  Config and dependsOn are held constant so only the block-name
+    arm of _scenario_dirty can fire — this test fails if that arm is removed."""
     paths = _paths(tmp_path)
-    # First apply uses run-command.
-    m1 = _manifest([_sc("a", str(tmp_path))])
+    _make_noop_pair(paths["blocks_dir"])
+    # First apply: scenario "a" uses noop_a, config={}, dependsOn=[].
+    sc_a = {"id": "a", "block": "noop_a", "config": {}, "dependsOn": []}
+    m1 = {"schemaVersion": 1, "branch": "feat/x", "slot": None,
+          "createdAt": "2026-06-11T00:00:00Z",
+          "updatedAt": "2026-06-11T00:00:00Z", "scenarios": [sc_a]}
     _write_manifest(paths, m1)
     engine.apply_manifest(paths, "feat/x", None, {}, allow_protected=False)
-    # Now swap block to "noop" with identical config structure (no command needed).
-    _make_noop_block(paths["blocks_dir"])
-    m2_sc = {"id": "a", "block": "noop", "config": {}, "dependsOn": []}
+    # Swap block noop_a -> noop_b, keeping config and dependsOn identical.
+    sc_b = {"id": "a", "block": "noop_b", "config": {}, "dependsOn": []}
     m2 = {"schemaVersion": 1, "branch": "feat/x", "slot": None,
           "createdAt": "2026-06-11T00:00:00Z",
-          "updatedAt": "2026-06-11T00:00:00Z", "scenarios": [m2_sc]}
+          "updatedAt": "2026-06-11T00:00:00Z", "scenarios": [sc_b]}
     _write_manifest(paths, m2)
     r = engine.apply_manifest(paths, "feat/x", None, {}, allow_protected=False)
     assert "a" in r["cleaned"]
@@ -346,16 +354,22 @@ def test_block_name_only_change_dirties_scenario(tmp_path):
 
 
 def test_status_drift_fires_on_block_name_change(tmp_path):
-    """Status drift must include a scenario whose block changed (no re-apply)."""
+    """Status drift must include a scenario whose block name changed (same config).
+    Config and dependsOn are held constant so only the block-name arm of
+    _scenario_dirty can fire — this test fails if that arm is removed."""
     paths = _paths(tmp_path)
-    m1 = _manifest([_sc("a", str(tmp_path))])
+    _make_noop_pair(paths["blocks_dir"])
+    sc_a = {"id": "a", "block": "noop_a", "config": {}, "dependsOn": []}
+    m1 = {"schemaVersion": 1, "branch": "feat/x", "slot": None,
+          "createdAt": "2026-06-11T00:00:00Z",
+          "updatedAt": "2026-06-11T00:00:00Z", "scenarios": [sc_a]}
     _write_manifest(paths, m1)
     engine.apply_manifest(paths, "feat/x", None, {}, allow_protected=False)
-    _make_noop_block(paths["blocks_dir"])
-    m2_sc = {"id": "a", "block": "noop", "config": {}, "dependsOn": []}
+    # Swap block noop_a -> noop_b without re-applying.
+    sc_b = {"id": "a", "block": "noop_b", "config": {}, "dependsOn": []}
     m2 = {"schemaVersion": 1, "branch": "feat/x", "slot": None,
           "createdAt": "2026-06-11T00:00:00Z",
-          "updatedAt": "2026-06-11T00:00:00Z", "scenarios": [m2_sc]}
+          "updatedAt": "2026-06-11T00:00:00Z", "scenarios": [sc_b]}
     _write_manifest(paths, m2)
     s = engine.status(paths)
     assert "a" in s["entries"][0]["drift"]

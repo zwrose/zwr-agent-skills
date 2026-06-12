@@ -284,6 +284,15 @@ def test_scrub_negative_x_api_key_benign_unchanged():
     assert pc.scrub(benign) == benign
 
 
+# r2v-code-code-001: pattern 1b must fully redact quoted x-api-key values with whitespace.
+def test_scrub_x_api_key_quoted_value_with_space():
+    """{'x-api-key': 'abc def'} — the post-whitespace portion ('def') must not leak."""
+    s = pc.scrub
+    result = s("{'x-api-key': 'abc def'}")
+    assert "[REDACTED]" in result
+    assert "def" not in result
+
+
 # fl-secu-security-004: render_marker and fallback_path reject traversal keys.
 def test_render_marker_rejects_path_separator_in_key():
     import pytest as _pytest

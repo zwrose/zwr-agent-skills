@@ -114,13 +114,29 @@ def topo_order(scenarios):
     return order
 
 
-def load_plan_record(path, manifest):
+def load_plan_record(path, manifest, branch=None, slot=None):
+    """Load and validate a plan record.
+
+    When branch and slot are supplied, the plan record's declared branch/slot
+    fields (if present) are cross-checked for identity — the same invariant
+    enforced on the manifest by _check_manifest_identity.
+    """
     rec = _load_json(path, "plan record")
     v = rec.get("schemaVersion")
     if v != PLAN_RECORD_SCHEMA_VERSION:
         raise EngineError(
             f"plan record {path} has schemaVersion {v!r}; this engine "
             f"supports {PLAN_RECORD_SCHEMA_VERSION}.")
+    # Identity cross-check: if the plan record declares branch/slot, they must
+    # match the requested pair (same rule as _check_manifest_identity for the
+    # manifest). Fields absent from the record are treated as informational-only
+    # and are not checked.
+    if branch is not None and "branch" in rec:
+        if rec["branch"] != branch or rec.get("slot") != slot:
+            raise EngineError(
+                f"plan record at {path} declares branch="
+                f"{rec['branch']!r} slot={rec.get('slot')!r}, not "
+                f"({branch!r}, {slot!r}) — identity lives in the JSON")
     if not isinstance(rec.get("steps"), list):
         raise EngineError(
             f"plan record {path}: missing or non-list `steps` field")
@@ -538,7 +554,7 @@ def main(argv):
             manifest = load_manifest(mp)
             _check_manifest_identity(manifest, mp, branch, slot)
             plan_path = os.path.join(paths["manifests_dir"], f"{key}.plan.json")
-            rec = load_plan_record(plan_path, manifest)
+            rec = load_plan_record(plan_path, manifest, branch=branch, slot=slot)
             out = {"ok": True, "command": "validate-plan", "key": key,
                    "steps": len(rec["steps"])}
         elif cmd == "status":
