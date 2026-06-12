@@ -47,10 +47,28 @@ PATHS=$(python3 "${CLAUDE_PLUGIN_ROOT}/lib/store.py" create --location "$LOC")
 
 ## Step 5 — Interview only the gaps
 
-Ask ONLY what detection + CLAUDE.md left open: auth strategy (test-user env
-var names / bypass / real-browser-session), protected targets (which DB or
-surface must the gate refuse — suggest the production/main DB you detected),
-base-URL confirmation.
+Ask ONLY what detection + CLAUDE.md left open. The user may not know the
+option space — for each question, present the options with one-line
+trade-offs AND a recommendation derived from what you detected.
+
+1. **Auth strategy** — how execute gets a signed-in session:
+   - *Test-user credentials* (env var NAMES only, never secrets): needs a
+     password/credentials login to already exist in the app.
+   - *Auth bypass*: a dev-only sign-in path; enables unattended runs in a
+     clean browser, but requires an app code change and care that it can
+     never reach production.
+   - *Real browser session* (forces Claude in Chrome): zero app changes;
+     runs are semi-attended and drive the user's real, signed-in browser.
+   Recommend from detection: OAuth-only providers and no credentials/test
+   login → real browser session is the zero-code default.
+2. **Protected targets** — which DB/surface the gate must refuse. Suggest
+   the production/main DB you detected. If the app reads the same local DB
+   the seeds would target, ALSO ask which seeding story the user wants:
+   seed the local dev DB the app already reads (simplest — the app sees the
+   data; protect only production-shaped names/URIs), or seed an isolated
+   scratch DB with the profile's `devCommand` overriding the connection env
+   var (stricter; the app only sees it when started via the profile).
+3. **Base URL / readiness probe** — confirm.
 
 ## Step 6 — Scaffold
 
