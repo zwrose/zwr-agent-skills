@@ -1,0 +1,221 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "fc2b917f2cef",
+      "dimension": "Test",
+      "category": "claim/test-mismatch-plan-test-list",
+      "action": "fix"
+    },
+    {
+      "id": "c0cee3a956a3",
+      "dimension": "Code",
+      "category": "eval-bait-schema-fit",
+      "action": "fix"
+    },
+    {
+      "id": "4c4fd137a3c6",
+      "dimension": "Code",
+      "category": "version-literal-sync",
+      "action": "fix"
+    },
+    {
+      "id": "1f78a6d3ea2f",
+      "dimension": "Architecture",
+      "category": "dedupe-tie-break-enum",
+      "action": "fix"
+    },
+    {
+      "id": "2e6f82f8edcd",
+      "dimension": "Architecture",
+      "category": "boundary-resource-lifecycle",
+      "action": "fix"
+    },
+    {
+      "id": "ef0ef495ef04",
+      "dimension": "Architecture",
+      "category": "eval-ab-gate-fit",
+      "action": "fix"
+    },
+    {
+      "id": "add40ae6c321",
+      "dimension": "Test",
+      "category": "plan-time-verification",
+      "action": "fix"
+    },
+    {
+      "id": "e5230aa8dfaf",
+      "dimension": "Test",
+      "category": "risks-overlap-fixture",
+      "action": "fix"
+    },
+    {
+      "id": "aa4cdf1faadd",
+      "dimension": "Architecture",
+      "category": "frozen-fixture-invariant",
+      "action": "fix"
+    },
+    {
+      "id": "d90c131c2ca7",
+      "dimension": "Test",
+      "category": "scorer-scope-window",
+      "action": "fix"
+    },
+    {
+      "id": "cf40fb325c74",
+      "dimension": "Architecture",
+      "category": "rubric-crew-wording",
+      "action": "fix"
+    },
+    {
+      "id": "e820de11e7d9",
+      "dimension": "Architecture",
+      "category": "sharpened-agent-ab-gate",
+      "action": "fix"
+    },
+    {
+      "id": "bdde29bc6819",
+      "dimension": "Test",
+      "category": "recall-class-coverage",
+      "action": "fix"
+    },
+    {
+      "id": "20db214cd850",
+      "dimension": "Test",
+      "category": "single-variant-acceptance-bar",
+      "action": "fix"
+    },
+    {
+      "id": "6d035bd923df",
+      "dimension": "Architecture",
+      "category": "plan-content-requirements-dual-site",
+      "action": "fix"
+    },
+    {
+      "id": "f5b73c523685",
+      "dimension": "Code",
+      "category": "plugin-description-enumeration",
+      "action": "fix"
+    },
+    {
+      "id": "53c959d8df19",
+      "dimension": "Code",
+      "category": "net-new-trap-hit-nuance",
+      "action": "fix"
+    },
+    {
+      "id": "4c7e6512f0a5",
+      "dimension": "Test",
+      "category": "audit-debt-table-guard",
+      "action": "fix"
+    },
+    {
+      "id": "82b769411ea5",
+      "dimension": "Test",
+      "category": "trap-reason-scope-tokens",
+      "action": "fix"
+    },
+    {
+      "id": "91dcf479ef77",
+      "dimension": "Test",
+      "category": "trap-window-tiling",
+      "action": "fix"
+    },
+    {
+      "id": "f0efa3a8d38e",
+      "dimension": "Test",
+      "category": "plan-time-manual-procedure",
+      "action": "fix"
+    },
+    {
+      "id": "2cbc38efc7c8",
+      "dimension": "Architecture",
+      "category": "rubric-dispatch-fact-placement",
+      "action": "fix"
+    },
+    {
+      "id": "8618c0f8e524",
+      "dimension": "Test",
+      "category": "ab-baseline-ref",
+      "action": "fix"
+    },
+    {
+      "id": "f849ee866a20",
+      "dimension": "Architecture",
+      "category": "reciprocal-boundary-carveouts",
+      "action": "fix"
+    },
+    {
+      "id": "0481ee72b78a",
+      "dimension": "Code",
+      "category": "readme-dimension-enum-dual-site",
+      "action": "fix"
+    },
+    {
+      "id": "802bfbe4a585",
+      "dimension": "Code",
+      "category": "linehints-unique-text",
+      "action": "fix"
+    },
+    {
+      "id": "6e8fcff00640",
+      "dimension": "Code",
+      "category": "readme-fouragent-scoping",
+      "action": "fix"
+    },
+    {
+      "id": "4aeca5afae75",
+      "dimension": "Test",
+      "category": "dispatch-enumeration-guard",
+      "action": "fix"
+    },
+    {
+      "id": "fa770650a1d5",
+      "dimension": "Test",
+      "category": "manual-run-plugin-version",
+      "action": "fix"
+    },
+    {
+      "id": "b47cd0d39036",
+      "dimension": "Test",
+      "category": "seed-window-constraint",
+      "action": "fix"
+    },
+    {
+      "id": "8623cb91c47d",
+      "dimension": "Architecture",
+      "category": "fixture-dispatch-scoping",
+      "action": "fix"
+    },
+    {
+      "id": "9a3cc9758312",
+      "dimension": "Test",
+      "category": "dependency-failure-window",
+      "action": "fix"
+    },
+    {
+      "id": "c959e0cf0d34",
+      "dimension": "Code",
+      "category": "baseline-claim-accuracy",
+      "action": "fix"
+    },
+    {
+      "id": "2e6355b75e77",
+      "dimension": "Test",
+      "category": "sample-plan-location",
+      "action": "fix"
+    },
+    {
+      "id": "74dead3107f9",
+      "dimension": "Code",
+      "category": "quote-attribution",
+      "action": "fix"
+    },
+    {
+      "id": "202bc4f997c2",
+      "dimension": "Test",
+      "category": "trap-liveness-smoke",
+      "action": "fix"
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import json
 
+import pytest
 import score
 
 
@@ -288,3 +289,150 @@ def test_smoke_real_refactor_fixture(tmp_path):
     assert r["recall"]["total"] == 5
     assert r["recall"]["matched"] == 5
     assert r["precision"]["traps_flagged"] == 0
+
+
+# ---- Failure-Mode whole-flow classes (premortem-reviewer) ------------------
+
+
+@pytest.mark.parametrize("taxonomy", [
+    "concurrency/race",
+    "partial-failure",
+    "dependency-failure",
+    "resource-exhaustion",
+    "migration-rollback",
+])
+def test_failure_mode_seed_matches_at_flow_distance(tmp_path, taxonomy):
+    # Whole-flow classes are function-scoped: a correct finding citing a
+    # different line of the same flow (10 lines off) must still match.
+    expected = {"seeds": [{"dimension": "Failure-Mode", "taxonomy": taxonomy,
+                           "file": "src/app.ts",
+                           "lineHint": "export function getNote(id) {"}],  # line 3
+                "traps": []}
+    fdir = _make_fixture(tmp_path, expected, SYNTH_DIFF)
+    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 13}]
+    r = score.score_fixture(fdir, findings)
+    assert r["recall"]["matched"] == 1
+
+
+@pytest.mark.parametrize("taxonomy", ["detectability", "assumption-violation"])
+def test_line_scoped_failure_mode_taxonomies_stay_line_scoped(tmp_path, taxonomy):
+    # detectability and assumption-violation keep the exact +/-2 default
+    # (they are NOT in FUNCTION_SCOPED). A finding 4 lines off must not match.
+    expected = {"seeds": [{"dimension": "Failure-Mode", "taxonomy": taxonomy,
+                           "file": "src/app.ts",
+                           "lineHint": "export function getNote(id) {"}],  # line 3
+                "traps": []}
+    fdir = _make_fixture(tmp_path, expected, SYNTH_DIFF)
+    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 7, "taxonomy": taxonomy}]  # +4 off
+    r = score.score_fixture(fdir, findings)
+    assert r["recall"]["matched"] == 0
+
+
+def test_failure_mode_seed_matches_at_exact_window_boundary(tmp_path):
+    # Boundary pin: a finding exactly K=15 lines from the seed's resolved line
+    # (line 3) must still match (|18 - 3| == 15 == FUNCTION_WINDOW).
+    expected = {"seeds": [{"dimension": "Failure-Mode", "taxonomy": "partial-failure",
+                           "file": "src/app.ts",
+                           "lineHint": "export function getNote(id) {"}],  # line 3
+                "traps": []}
+    fdir = _make_fixture(tmp_path, expected, SYNTH_DIFF)
+    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 18}]  # exactly 15 off
+    r = score.score_fixture(fdir, findings)
+    assert r["recall"]["matched"] == 1
+
+
+@pytest.mark.parametrize("reason_token", [
+    "profile-excluded-race",
+    "retry-wrapped",
+    "framework-transaction",
+])
+def test_failure_mode_trap_reason_is_function_scoped(tmp_path, reason_token):
+    # A bait trap whose whyNotFlagged carries a Failure-Mode scope token uses
+    # the +/-15 window: a finding 10 lines off still counts as a trap hit.
+    expected = {"seeds": [],
+                "traps": [{"file": "src/app.ts",
+                           "lineHint": "export function getNote(id) {",  # line 3
+                           "whyNotFlagged": reason_token + " — guarded, see CLAUDE.md"}]}
+    fdir = _make_fixture(tmp_path, expected, SYNTH_DIFF)
+    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 13}]
+    r = score.score_fixture(fdir, findings)
+    assert r["precision"]["traps_flagged"] == 1
+
+
+def test_token_less_trap_reason_stays_line_scoped(tmp_path):
+    # A prose reason with NO scope token silently degrades to +/-2 — the spec
+    # requires bait reasons to carry their token; this test pins the behavior
+    # that makes that requirement load-bearing.
+    expected = {"seeds": [],
+                "traps": [{"file": "src/app.ts",
+                           "lineHint": "export function getNote(id) {",  # line 3
+                           "whyNotFlagged": "this is fine because reasons"}]}
+    fdir = _make_fixture(tmp_path, expected, SYNTH_DIFF)
+    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 13}]
+    r = score.score_fixture(fdir, findings)
+    assert r["precision"]["traps_flagged"] == 0
+
+
+def test_finding_outside_all_windows_lands_net_new(tmp_path):
+    # Negative boundary: 16+ lines from a function-scoped trap is outside the
+    # +/-15 window — the FP lands in net_new, NOT traps.
+    expected = {"seeds": [],
+                "traps": [{"file": "src/app.ts",
+                           "lineHint": "import { db } from \"./db\";",  # line 1
+                           "whyNotFlagged": "framework-transaction — atomic"}]}
+    fdir = _make_fixture(tmp_path, expected, SYNTH_DIFF)
+    findings = [{"dimension": "Failure-Mode", "file": "src/app.ts", "line": 17}]  # 16 off
+    r = score.score_fixture(fdir, findings)
+    assert r["precision"]["traps_flagged"] == 0
+    assert len(r["net_new"]) == 1
+
+
+# ---- real-fixture liveness smokes (failure-modes fixtures) -----------------
+
+def _real_fixture(name):
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(os.path.dirname(here), "fixtures", name)
+
+
+def test_smoke_failure_modes_perfect_recall():
+    # Liveness: every seed's lineHint resolves, and a finding citing each
+    # resolved line exactly scores matched == total. An unresolvable seed
+    # would fail loudly here (missed[]), before any agent ever runs.
+    fdir = _real_fixture("failure-modes")
+    expected = score.load_expected(fdir)
+    with open(fdir + "/diff.txt") as f:
+        by_file = score._parse_diff_lines(f.read())
+    findings = []
+    for seed in expected["seeds"]:
+        line = score._resolve_line(by_file, seed["file"], seed["lineHint"])
+        assert line is not None, f"seed lineHint does not resolve: {seed['lineHint']!r}"
+        findings.append({"dimension": seed["dimension"],
+                         "file": seed["file"], "line": line})
+    r = score.score_fixture(fdir, findings)
+    assert r["recall"]["total"] == 5
+    assert {s["taxonomy"] for s in expected["seeds"]} == {
+        "concurrency/race", "partial-failure", "dependency-failure",
+        "resource-exhaustion", "migration-rollback",
+    }
+    assert r["recall"]["matched"] == r["recall"]["total"] == len(expected["seeds"])
+    assert r["precision"]["traps_flagged"] == 0
+
+
+def test_smoke_bait_fixture_traps_are_live():
+    # Liveness: every bait trap's lineHint resolves AND fires when a finding
+    # is placed on it. traps_flagged == 0 is otherwise vacuously satisfiable
+    # by a dead trap whose lineHint never matches (no warning from score.py).
+    fdir = _real_fixture("failure-modes-bait")
+    expected = score.load_expected(fdir)
+    assert expected["seeds"] == []
+    with open(fdir + "/diff.txt") as f:
+        by_file = score._parse_diff_lines(f.read())
+    findings = []
+    for trap in expected["traps"]:
+        line = score._resolve_line(by_file, trap["file"], trap["lineHint"])
+        assert line is not None, f"trap lineHint does not resolve: {trap['lineHint']!r}"
+        findings.append({"dimension": "Failure-Mode", "file": trap["file"], "line": line})
+    assert len(expected["traps"]) == 3
+    r = score.score_fixture(fdir, findings)
+    assert r["precision"]["traps_flagged"] == len(expected["traps"])

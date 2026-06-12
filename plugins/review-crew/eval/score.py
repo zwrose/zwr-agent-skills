@@ -31,15 +31,18 @@ line's stripped text to its new-file line number, and look the lineHint up there
   within **±2** of the seed's resolved line. This ±2 rule is exact.
 
 - **Function-scoped taxonomies** (``cognitive-complexity``, ``mock-echo``,
-  ``AcyclicDependencies``, ``premature-abstraction``, ``BFLA``) — reviewers
-  legitimately cite the declaration, an inner branch, or an assertion anywhere in
-  the symbol's body, and exact function-span extraction from a diff is fuzzy. So
-  we use the README's documented generous rule: a finding matches iff same
-  ``file`` AND same ``dimension`` AND either
+  ``AcyclicDependencies``, ``premature-abstraction``, ``BFLA``, plus the
+  Failure-Mode whole-flow classes ``concurrency/race``, ``partial-failure``,
+  ``dependency-failure``, ``resource-exhaustion``, ``migration-rollback``) —
+  reviewers legitimately cite the declaration, an inner branch, or an assertion
+  anywhere in the symbol's body, and exact function-span extraction from a diff
+  is fuzzy. So we use the README's documented generous rule: a finding matches
+  iff same ``file`` AND same ``dimension`` AND either
     (a) the cited line is within **±K (K=15)** of the seed's resolved line, OR
     (b) the finding carries the same ``taxonomy`` as the seed (anywhere in file).
-  Traps are matched with the same scope-aware logic (a function-scoped trap such
-  as ``size-only``/``clear-non-duplicative`` uses the ±K window; otherwise ±2).
+  Traps are matched with the same scope-aware logic (a function-scoped trap —
+  ``size-only``, ``clear-non-duplicative``, or one of the Failure-Mode bait
+  reasons — uses the ±K window; otherwise ±2).
 
 Gate (only when a baseline findings set is supplied)
 ----------------------------------------------------
@@ -59,6 +62,13 @@ FUNCTION_SCOPED = {
     "AcyclicDependencies",
     "premature-abstraction",
     "BFLA",
+    # Failure-Mode whole-flow classes (premortem-reviewer): a correct finding
+    # legitimately cites any line of the multi-step flow.
+    "concurrency/race",
+    "partial-failure",
+    "dependency-failure",
+    "resource-exhaustion",
+    "migration-rollback",
 }
 
 LINE_SLACK = 2       # exact ±2 window for line-scoped taxonomies
@@ -66,7 +76,15 @@ FUNCTION_WINDOW = 15  # generous ±K window for function-scoped taxonomies
 
 # Trap `whyNotFlagged` reasons that denote a function-scoped (whole-symbol) trap;
 # all other reasons are line-scoped (match a finding only within ±2 of the line).
-FUNCTION_SCOPED_TRAP_REASONS = {"size-only", "clear-non-duplicative"}
+FUNCTION_SCOPED_TRAP_REASONS = {
+    "size-only",
+    "clear-non-duplicative",
+    # Failure-Mode bait reasons (whole-flow traps); detection is substring
+    # containment over whyNotFlagged, so bait reasons MUST carry their token.
+    "profile-excluded-race",
+    "retry-wrapped",
+    "framework-transaction",
+}
 
 
 # --------------------------------------------------------------------------
@@ -246,7 +264,7 @@ def _score_one(expected, by_file, findings):
         target = _resolve_line(by_file, trap.get("file", ""), trap.get("lineHint", ""))
         # A trap has no dimension; the README matches "some emitted finding" on
         # location regardless of dimension. Scope is the trap's own nature, read
-        # from whyNotFlagged: size-only / clear-non-duplicative are whole-symbol
+        # from whyNotFlagged: reasons in FUNCTION_SCOPED_TRAP_REASONS are whole-symbol
         # (function-scoped) traps; everything else is line-scoped (±2).
         func_scoped = any(r in (trap.get("whyNotFlagged") or "")
                           for r in FUNCTION_SCOPED_TRAP_REASONS)

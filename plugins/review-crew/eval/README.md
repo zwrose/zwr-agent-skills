@@ -33,16 +33,18 @@ self-contained set: a unified diff, a frozen review profile, a `CLAUDE.md`, and 
 | --- | --- | --- |
 | `fixtures/web-handler/` | adds a request handler + its test | one in-scope seed per dimension (Security BOLA, Code hardcoded-error, Architecture premature-abstraction, Test claim/test-mismatch) + three traps (pre-existing context-line smell, intentional sibling import, theme-token contrast) |
 | `fixtures/refactor/`    | refactors existing service modules | the new Plan-5 rules: Architecture AcyclicDependencies (import cycle), Code cognitive-complexity, Security BFLA (missing function-level authz) + BOPLA (mass-assignment), Test mock-echo + three traps (size-only growth, clear-non-duplicative shape, framework-escaped input) |
+| `fixtures/failure-modes/` | adds credits/voucher/notify/cache/migration flows | **premortem-only, single-variant** — five Failure-Mode seeds, one per diff-mode class (`partial-failure`, `concurrency/race`, `dependency-failure`, `resource-exhaustion`, `migration-rollback`); multi-tenant profile; bar: `matched == total` |
+| `fixtures/failure-modes-bait/` | adds guarded sync/backup/archive flows | **premortem-only, single-variant** — zero seeds, three whole-flow traps (`profile-excluded-race`, `retry-wrapped`, `framework-transaction`); single-user profile; bar: `traps_flagged == 0` |
 
 `expected.json` schema (both fixtures):
 
 ```json
 {
   "seeds": [
-    {"dimension":"<Architecture|Code|Security|Test>","severity":"<tier>","taxonomy":"<term>","file":"<path>","lineHint":"<the + line text>","why":"..."}
+    {"dimension":"<Architecture|Code|Security|Test|Failure-Mode>","severity":"<tier>","taxonomy":"<term>","file":"<path>","lineHint":"<the + line text>","why":"..."}
   ],
   "traps": [
-    {"file":"<path>","lineHint":"<line text>","whyNotFlagged":"<context-line | theme-token | sibling-import | size-only | framework-escaped | clear-non-duplicative>"}
+    {"file":"<path>","lineHint":"<line text>","whyNotFlagged":"<context-line | theme-token | sibling-import | size-only | framework-escaped | clear-non-duplicative | profile-excluded-race | retry-wrapped | framework-transaction>"}
   ]
 }
 ```
@@ -84,7 +86,7 @@ cp        plugins/review-crew/rubric/review-base.md        "$OUT/rubric.improved
 ## Procedure — dual dispatch
 
 For each **(agent × fixture × variant)** dispatch one reviewer-simulating
-subagent. There are `4 agents × 2 fixtures × 2 variants = 16` dispatches. Each
+subagent. There are `4 agents × 2 fixtures × 2 variants = 16` dispatches. (The single-variant failure-modes fixtures are NOT part of this 16 — see §Single-variant fixtures.) Each
 variant pair (baseline, improved) for a given `(agent, fixture)` gets the SAME
 diff, profile, and CLAUDE.md — only the pasted agent file and pasted rubric differ.
 
@@ -153,10 +155,12 @@ For each emitted findings file, match against that fixture's `expected.json`:
    whether any emitted finding lands on the seed AND carries the right dimension.
    Matching rule depends on the seed's scope:
    - **Function-scoped taxonomies** (`cognitive-complexity`, `mock-echo`,
-     `AcyclicDependencies`, `premature-abstraction`, `BFLA`) — a finding matches
-     if its cited line falls **anywhere within the seeded function/symbol's line
-     span** in `diff.txt`, since reviewers legitimately cite the declaration, the
-     offending branch, or the assertion. Do NOT use the ±2 line window for these.
+     `AcyclicDependencies`, `premature-abstraction`, `BFLA`, plus the Failure-Mode
+     whole-flow classes `concurrency/race`, `partial-failure`, `dependency-failure`,
+     `resource-exhaustion`, `migration-rollback`) — a finding matches if its cited
+     line falls **anywhere within the seeded function/symbol's line span** in
+     `diff.txt`, since reviewers legitimately cite the declaration, the offending
+     branch, or the assertion. Do NOT use the ±2 line window for these.
    - **Line-scoped taxonomies** (`BOLA`, `BOPLA`, `hardcoded-error-string`,
      `claim-test-mismatch`, and any single-statement seed) — match `lineHint`
      text against the cited `file:line` allowing **±2 lines of slack**.
@@ -197,6 +201,29 @@ wrong: revise that agent file and re-run its four dispatches (2 fixtures × 2
 variants). Do not weaken a fixture to make an agent pass — the fixtures are the
 frozen ground truth.
 
+## Single-variant fixtures (failure-modes, failure-modes-bait)
+
+The two `failure-modes*` fixtures were added with the `premortem-reviewer`
+agent (review-crew 0.3.0). No five-agent baseline exists at `5a05714`, so the
+A/B gate above does not apply to them — they run **single-variant**
+(`gate: n/a`) with mechanical acceptance bars, scored on a **premortem-only
+dispatch** (trap matching is dimension-agnostic, so a five-crew union would
+conflate other agents' findings into the bars):
+
+- `failure-modes` passes iff `matched == total` (zero missed seeds).
+- `failure-modes-bait` passes iff `traps_flagged == 0`.
+
+Everything in §Sources-under-test, §Procedure, and §Gate above stays anchored
+to the historical four-agent baseline as-is; this section is additive. The
+Failure-Mode whole-flow taxonomy classes (`concurrency/race`,
+`partial-failure`, `dependency-failure`, `resource-exhaustion`,
+`migration-rollback`) are function-scoped (±15) in `score.py`; only
+`detectability` and `assumption-violation` stay line-scoped (±2). Bait trap
+`whyNotFlagged` reasons must carry their scope token (substring detection) and
+trap `lineHints` must be unique line texts (first-occurrence-wins resolution).
+Liveness smokes in `eval/tests/test_score.py` assert every seed and trap in
+both fixtures resolves and can fire.
+
 ## Running the scorer
 
 `score.py` makes the §Scoring rules above re-runnable: it loads a fixture's
@@ -236,12 +263,15 @@ text of a `+` line in `diff.txt`, so the scorer parses the diff once to map each
 added (and context) line's text to its new-file line number, then resolves each
 seed/trap to a concrete line. Line-scoped taxonomies match a finding within an
 **exact ±2** lines. For the **function-scoped** taxonomies (`cognitive-complexity`,
-`mock-echo`, `AcyclicDependencies`, `premature-abstraction`, `BFLA`) — where
-exact span extraction from a diff is fuzzy — the scorer uses the README's
-documented generous rule: a finding matches if it is within **±15 lines (K=15)**
+`mock-echo`, `AcyclicDependencies`, `premature-abstraction`, `BFLA`, plus the
+Failure-Mode whole-flow classes `concurrency/race`, `partial-failure`,
+`dependency-failure`, `resource-exhaustion`, `migration-rollback`) — where exact
+span extraction from a diff is fuzzy — the scorer uses the README's documented
+generous rule: a finding matches if it is within **±15 lines (K=15)**
 of the seed's resolved line **OR** carries the same `taxonomy` (anywhere in the
-file). Function-scoped *traps* (`size-only`, `clear-non-duplicative`) use the same
-±15 window; all other traps are line-scoped (±2).
+file). Function-scoped *traps* (`size-only`, `clear-non-duplicative`, and the
+Failure-Mode bait reasons `profile-excluded-race`/`retry-wrapped`/`framework-transaction`)
+use the same ±15 window; all other traps are line-scoped (±2).
 
 Unit tests live in `eval/tests/`:
 

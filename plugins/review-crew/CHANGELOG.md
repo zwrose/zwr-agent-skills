@@ -6,6 +6,36 @@ All notable changes to the `review-crew` plugin. Versions follow
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-06-11
+
+### Added
+
+- **`premortem-reviewer`** — a fifth bundled agent (dimension `Failure-Mode`)
+  using inverse reasoning ("assume it shipped and failed") over a named
+  failure-class taxonomy: `concurrency/race`, `partial-failure`,
+  `dependency-failure`, `resource-exhaustion`, `migration-rollback`,
+  `detectability`, `assumption-violation` (plan-time). Dispatched by
+  `review-plan` and `review-code` (always-on, full verdict weight);
+  `audit-debt` intentionally stays at the original four.
+- review-plan: **Failure-handling statement** plan-content requirement
+  (multi-step writes / outbound dependencies / migrations must state their
+  mid-failure behavior).
+- Eval: two premortem-only single-variant fixtures (`failure-modes` recall,
+  `failure-modes-bait` FP-traps) with mechanical bars and liveness smokes;
+  scorer windows for the whole-flow Failure-Mode classes; structural
+  dispatch-table tests (`lib/tests/test_dispatch_tables.py`).
+
+### Changed
+
+- `security-reviewer`: Critical findings must include a concrete attack
+  construction in `evidence` (Low confidence when it cannot be written down).
+- `test-reviewer`: mutation-survival findings must propose the specific test
+  case that kills the mutant (setup, input, exact assertion).
+- `code-reviewer` / `architecture-reviewer`: reciprocal carve-outs deferring
+  systemic failure chains to the premortem-reviewer.
+- Base rubric: dimension list gains `Failure-Mode`; `rubric-version` 2 → 3
+  (existing profiles will see the non-blocking staleness nudge).
+
 ## [0.2.0] — 2026-06-07
 
 ### Added

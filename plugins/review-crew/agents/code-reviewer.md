@@ -120,6 +120,13 @@ Flag ONLY when the app becomes unusable for the actual user. These are usability
 - Security implications of pattern violations — flag the missing auth/validation/ownership _as a pattern violation_; `security-reviewer` flags it _as a vulnerability_. Do not duplicate severity-Critical security framing here.
 - Any dimension the profile marks out of scope (e.g. general accessibility, if excluded). The three Self-usability breakage cases above are the only always-in-scope usability concerns — not general accessibility gaps.
 - Test mock patterns and coverage — that's `test-reviewer`.
+- Multi-step, systemic failure chains — concurrency races, partial-failure
+  consistency across a multi-step write, dependency-failure stories, systemic
+  resource exhaustion, migration/rollback risk — that's `premortem-reviewer`
+  (dimension Failure-Mode). You keep the single-line/local classes (null
+  deref, off-by-one, error-swallowing, a single unreleased resource); the
+  flow-level chain is theirs, so the two agents never report the same flow
+  twice.
 - Comments / doc additions, unless the project's conventions require them — default to no comment-style nits unless CLAUDE.md says otherwise.
 - Style/formatting/lint/typecheck issues — automated tooling handles these (per the base rubric's global exclusions).
 - Anything else excluded by the base rubric's global "Do NOT Flag" list or the profile's scope exclusions.

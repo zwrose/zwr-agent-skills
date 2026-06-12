@@ -98,6 +98,10 @@ Concretely:
 - Concerns owned by `code-reviewer` (naming, exports, error constants, file naming, import aliases, type-cast hygiene).
 - Concerns owned by `security-reviewer` (auth-bypass, ownership-scope). You _may_ flag the _architectural shape_ of an auth check ("this belongs in shared middleware, not duplicated across handlers"); you may NOT flag a missing auth check — that's security's job.
 - Concerns owned by `test-reviewer` (mock patterns, coverage). Honor any scope exclusions the profile records, and don't flag dimensions the crew does not cover.
+- Systemic failure-mode chains (races, partial-failure consistency,
+  dependency failure, exhaustion under load, migration/rollback) —
+  `premortem-reviewer`'s domain. You keep unit-composition cleanup and
+  structural complexity; the incident chain is theirs.
 - Performance micro-optimizations without evidence the path is hot — per the base rubric's global exclusions.
 - Anything else excluded by the base rubric's global "Do NOT Flag" list or the profile's scope exclusions.
 

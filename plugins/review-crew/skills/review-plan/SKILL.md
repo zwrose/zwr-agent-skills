@@ -6,7 +6,7 @@ user-invocable: true
 
 # Review Plan
 
-Run a multi-dimensional review on a draft plan or design spec **before any code is written**. The main context is an orchestrator: it locates the target plan, classifies what the design touches, dispatches the same four specialist agents `/review-crew:review-code` uses (architecture, code, security, test) in parallel against the plan doc instead of a diff, compiles their findings under the base rubric, attaches its own point of view to each finding, and revises the plan in place — auto-applying the mechanical fixes it recommends and stopping to ask only about findings it would skip/defer or fixes that involve a judgment call. This catches architecture pattern-fit issues, testing gaps, security implications of new data flows, and missing migration safety statements **before** they become rework.
+Run a multi-dimensional review on a draft plan or design spec **before any code is written**. The main context is an orchestrator: it locates the target plan, classifies what the design touches, dispatches the same five specialist agents `/review-crew:review-code` uses (architecture, code, security, test, premortem) in parallel against the plan doc instead of a diff, compiles their findings under the base rubric, attaches its own point of view to each finding, and revises the plan in place — auto-applying the mechanical fixes it recommends and stopping to ask only about findings it would skip/defer or fixes that involve a judgment call. This catches architecture pattern-fit issues, testing gaps, security implications of new data flows, and missing migration safety statements **before** they become rework.
 
 This skill is a **companion to** superpowers' `writing-plans` skill — not a replacement. `writing-plans` helps you draft a plan; `/review-crew:review-plan` red-teams the draft. Read the base rubric (`${CLAUDE_PLUGIN_ROOT}/rubric/review-base.md`) for severity calibration and the verification rules every finding must pass; if anything below contradicts the base rubric, the base rubric wins.
 
@@ -37,6 +37,7 @@ SESSION_DIR=$(mktemp -d /tmp/review-plan-XXXXXXXX)
 | `$SESSION_DIR/findings-code.json`         | code agent   | Code-reviewer findings array                                   |
 | `$SESSION_DIR/findings-security.json`     | sec agent    | Security-reviewer findings array                               |
 | `$SESSION_DIR/findings-test.json`         | test agent   | Test-reviewer findings array                                   |
+| `$SESSION_DIR/findings-premortem.json`    | premortem agent | Premortem-reviewer (Failure-Mode) findings array               |
 | `$SESSION_DIR/compiled.json`              | orchestrator | Deduplicated, verified findings + summary + verdict            |
 
 ## Workflow
@@ -134,7 +135,7 @@ cat > "$SESSION_DIR/meta.json" <<EOF
 EOF
 ```
 
-The classification is informational — it appears in the dispatch summary and is passed to subagents as context, but **all four specialists still run**. Coverage uniformity beats saving one agent dispatch; a "no data flow proposed" guess is exactly when a missing ownership check slips through.
+The classification is informational — it appears in the dispatch summary and is passed to subagents as context, but **all five specialists still run**. Coverage uniformity beats saving one agent dispatch; a "no data flow proposed" guess is exactly when a missing ownership check slips through.
 
 ### 2. Dispatch Summary
 
@@ -142,16 +143,17 @@ Print this dispatch summary as a plain status message, then dispatch the special
 
 - **Plan file:** `$PLAN_PATH` and its line count (`wc -l < $SESSION_DIR/plan.md`)
 - **Classification:** the `touches` array (e.g. `["API", "data", "auth"]`)
-- **Specialists to dispatch (all four, in parallel):**
+- **Specialists to dispatch (all five, in parallel):**
   - `architecture-reviewer` → `findings-architecture.json` _(does the heaviest lifting at plan time)_
   - `security-reviewer` → `findings-security.json`
   - `test-reviewer` → `findings-test.json`
   - `code-reviewer` → `findings-code.json` _(lighter at plan time)_
+  - `premortem-reviewer` → `findings-premortem.json` _(inverse reasoning: failure modes + unstated assumptions)_
 - **Session directory:** `$SESSION_DIR`
 
 ### 3. Dispatch Specialists in Parallel
 
-Launch all four specialists in a **single message with four `Agent` tool calls** so they run in parallel, each dispatched by its `subagent_type` (the agent's name). Each gets the same prompt template, parameterized by `subagent_type`, dimension label, and findings filename. The agent's review methodology is its own system prompt — the prompt below is context-only (paths and rules); do **not** tell it to read an agent file. Embed the **absolute** base-rubric path (the expanded value of `RUBRIC`) so the subagent can read it. Substitute `<PROFILE_PATH>` with the resolved absolute `$PROFILE` when building each subagent prompt (subagents do not inherit shell vars):
+Launch all five specialists in a **single message with five `Agent` tool calls** so they run in parallel, each dispatched by its `subagent_type` (the agent's name). Each gets the same prompt template, parameterized by `subagent_type`, dimension label, and findings filename. The agent's review methodology is its own system prompt — the prompt below is context-only (paths and rules); do **not** tell it to read an agent file. Embed the **absolute** base-rubric path (the expanded value of `RUBRIC`) so the subagent can read it. Substitute `<PROFILE_PATH>` with the resolved absolute `$PROFILE` when building each subagent prompt (subagents do not inherit shell vars):
 
 ```
 You are reviewing a draft plan/spec document, NOT code.
@@ -195,12 +197,22 @@ narrower than at code-review time:
   involved, also flag the narrow self-usability cases per the base rubric (a
   control reachable by no available interaction, a focus bug that blocks a
   flow) — NOT general accessibility, unless the profile/CLAUDE.md scopes it in.
+- Premortem-reviewer: assume the plan shipped and FAILED — surface unstated
+  assumptions and incident narratives for the failure classes (concurrency,
+  partial failure, dependency failure, resource exhaustion, migration/
+  rollback, detectability). Check for a Failure-handling statement wherever
+  the plan introduces a multi-step write, outbound dependency, or migration.
+  Honor the profile's threat model — do not raise failure classes it
+  excludes (no race findings under a single-user threat model).
 
 ## Opinionated plan-content requirements (flag missing items)
 - Explicit test list (not "we'll add tests")
 - Explicit ownership / auth specification for new data flows
 - Pattern-fit justification for proposed new abstractions
 - Migration safety statement if schema changes are proposed
+- Failure-handling statement if the plan introduces a multi-step write, an
+  outbound dependency, or a migration (what happens when the step fails
+  midway, or an explicit "not applicable")
 - Mobile / responsive (phone-width) behavior if UI work is involved AND the
   project targets mobile (per the profile / CLAUDE.md)
 
@@ -235,12 +247,13 @@ Per-agent substitutions:
 | code-reviewer                | code                          | Code          |
 | security-reviewer            | security                      | Security      |
 | test-reviewer                | test                          | Test          |
+| premortem-reviewer           | premortem                     | Failure-Mode  |
 
-After dispatch, wait for all four agents to return. Each writes its findings file to `$SESSION_DIR/`. The orchestrator does not read agent transcripts — only the JSON files.
+After dispatch, wait for all five agents to return. Each writes its findings file to `$SESSION_DIR/`. The orchestrator does not read agent transcripts — only the JSON files.
 
 ### 4. Compile Findings (main context)
 
-Read the four `$SESSION_DIR/findings-*.json` files. Apply, in order:
+Read the five `$SESSION_DIR/findings-*.json` files. Apply, in order:
 
 1. **Citation check.** Drop any finding with `file == null` or `line == null` — the base rubric's verification rules require a `file:line` citation.
 2. **Dedupe by plan section + topic.** When two findings target the same plan section heading and same topic (e.g. both flagging "no test list"), merge them: concatenate bodies with a separator, keep the higher severity, list both dimensions (e.g. `"Test + Architecture"`).
@@ -273,7 +286,7 @@ Initialize `round = 1` and an empty `skip-set` (finding identities the user chos
 
 Each round:
 
-1. **Review.** (Round 1: the four specialists dispatched in §3 have already written `$SESSION_DIR/findings-*.json`.) For round > 1, re-dispatch the four specialists per §3 against the freshly-copied `$SESSION_DIR/plan.md`.
+1. **Review.** (Round 1: the five specialists dispatched in §3 have already written `$SESSION_DIR/findings-*.json`.) For round > 1, re-dispatch the five specialists per §3 against the freshly-copied `$SESSION_DIR/plan.md`.
 2. **Compile** per §4 into `$SESSION_DIR/compiled.json` with verdict.
 3. **Effective findings** = `compiled.findings` whose identity is NOT in the `skip-set`.
 4. **Form POV + classification for every effective finding.** Per the base rubric's "Orchestrator POV", from a targeted read of the cited plan section in `$SESSION_DIR/plan.md` (and any cited project file), emit for each finding a **recommendation** (`Fix` = revise the plan; `Defer` = real gap fine to nail down during implementation; `Skip` = not worth a plan change) + one-sentence rationale + High/Low confidence, and a **classification** (`mechanical` = one obvious plan edit, e.g. adding a named test to the test list; `judgment` = a real choice in wording or design among options).
@@ -358,6 +371,11 @@ Agents flag missing items in this list — the plan author should be able to poi
 - **Ownership / auth specification** — for every new data flow or API route, the plan names which session field scopes the data and which checks the route performs (e.g. an owner/tenant filter on all reads, an admin check for admin-only paths).
 - **Pattern-fit justification** — for every proposed new abstraction (util, hook, component, module), the plan articulates why it isn't a duplicate of an existing module and where the second caller will be.
 - **Migration safety statement** — if the plan changes a schema, it names the migration strategy (backfill script, defaulted field, dual-write window) and the rollback plan.
+- **Failure-handling statement** — if the plan introduces a multi-step write,
+  an outbound dependency, or a migration, it names what happens when the step
+  fails midway (transaction, compensation, idempotent retry, reconciliation —
+  or an explicit "not applicable"). Parallels the migration-safety item; the
+  premortem-reviewer checks it deterministically.
 - **Mobile / responsive behavior** — if the plan introduces UI and the project targets mobile (per the profile / CLAUDE.md), it names how the UI behaves on a phone-width viewport. General accessibility is out of scope unless the profile/CLAUDE.md scopes it in; only the narrow self-usability breakage cases in the base rubric apply.
 
 ## Out of Scope at Plan Time
@@ -377,6 +395,6 @@ These are out of scope; agents are told not to flag them in plan-time framing:
 | Not classifying what the plan touches                                       | Skipping the `touches` classification leads to spurious findings (e.g. UI findings on a backend-only plan). Run the regex heuristics every time.                |
 | Re-running and re-raising the same findings without consulting prior rounds | Check your `skip-set` and the chat record of prior rounds before raising a finding. Authors shouldn't see the same finding twice without a new technical basis. |
 | Treating "we'll add tests" as acceptable                                    | Plans must enumerate the test list. "We'll add tests" is a Critical or Important miss depending on what the plan touches.                                       |
-| Skipping the all-four specialists rule based on classification              | The `touches` array is informational. All four agents always run — each returns `[]` when there's nothing in its dimension, which is cheap and uniform.         |
-| Dispatching reviewers by reading an agent file                              | The four reviewers are bundled plugin agents — dispatch each by its `subagent_type` (its name). The methodology is the agent's own system prompt.               |
+| Skipping the all-five specialists rule based on classification              | The `touches` array is informational. All five agents always run — each returns `[]` when there's nothing in its dimension, which is cheap and uniform.         |
+| Dispatching reviewers by reading an agent file                              | The five reviewers are bundled plugin agents — dispatch each by its `subagent_type` (its name). The methodology is the agent's own system prompt.               |
 | Skipping the profile bootstrap                                              | If `.claude/review-profile.md` is absent, run review-init's create procedure inline first. Headless runs get a provisional strict profile.                      |

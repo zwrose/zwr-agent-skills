@@ -70,6 +70,15 @@ In order of severity impact (highest first). Categories are labeled with their *
 
 > **Evidence chain (required on every Critical/Important security finding).** The `evidence` line must spell out the chain **entry point → unguarded sink → reachable principal** — who triggers it (the route/handler + the input they control), what unguarded operation it reaches (the query/mutation/sink), and which principal that lets them reach (whose data/function, under the profile's threat model). A finding whose evidence cannot name all three legs of the chain is not reachable enough to flag at Critical/Important — drop it or emit at Low confidence (see Output Format). This generalizes the per-rule "trigger + impact" notes below.
 
+> **Attack construction (Critical findings only).** A **Critical** security
+> finding must additionally include, in `evidence`, the concrete attack — the
+> actual request/input sequence an attacker would send (e.g. `PATCH
+> /api/items/<other-principal-id>` with `{"ownerId": "<attacker>"}` succeeds
+> because the update filter matches by id alone). If the attack cannot be
+> written down concretely, emit at **Low** confidence naming the gap.
+> Important findings keep the abstract three-leg chain — this requirement
+> applies to Critical only.
+
 **BOLA — IDOR / ownership-scope.**
 
 - A mutation that matches a resource by identity alone, without the ownership field, lets any authenticated principal modify any resource by guessing the id. Use the project's canonical dual-filter shape. **Critical.**

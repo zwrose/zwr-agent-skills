@@ -1,0 +1,22 @@
+{
+  "fixture": "failure-modes-bait",
+  "description": "FP-bait fixture for the premortem-reviewer. Zero seeds; three scary-looking-but-guarded flows encoded as traps. Premortem-only dispatch; acceptance bar: traps_flagged == 0. Each whyNotFlagged carries its scope token (profile-excluded-race / retry-wrapped / framework-transaction) so the trap window is +/-15; trap lineHints are unique line texts.",
+  "seeds": [],
+  "traps": [
+    {
+      "file": "src/services/sync.ts",
+      "lineHint": "if (!note || note.imported) {",
+      "whyNotFlagged": "profile-excluded-race — the profile declares a single-user, single-process threat model: no concurrent invoker exists, so the check-then-act shape cannot interleave. Flagging a race here ignores the profile gate."
+    },
+    {
+      "file": "src/services/sync.ts",
+      "lineHint": "const res = await retryFetch(\"https://backup.example.com/api/push\", {",
+      "whyNotFlagged": "retry-wrapped — the outbound call goes through the project's retryFetch wrapper with explicit timeoutMs and bounded retries (the canonical pattern); the dependency-failure story exists."
+    },
+    {
+      "file": "src/services/sync.ts",
+      "lineHint": "return db.transaction(async (tx) => {",
+      "whyNotFlagged": "framework-transaction — the multi-step archive write runs inside db.transaction, the data layer's atomic transaction per CLAUDE.md; a mid-flow crash rolls back, so there is no partial-failure window."
+    }
+  ]
+}

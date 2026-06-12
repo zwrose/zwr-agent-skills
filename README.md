@@ -17,8 +17,8 @@ once, then install the plugins you want:
 **A standing review panel for your code, plans, and tech debt.**
 
 Most AI review is one model skimming a diff for "anything wrong?" review-crew is
-built differently: a panel of **four specialist reviewers** — architecture, code,
-security, and test — each with its own methodology, running in parallel under a
+built differently: a panel of **five specialist reviewers** — architecture, code,
+security, test, and failure-mode (premortem) — each with its own methodology, running in parallel under a
 shared severity rubric. An orchestrator compiles their findings, triages each one,
 and (for code) drives an **auto-fix loop** that applies the safe fixes and
 re-reviews until nothing Critical or Important remains.
