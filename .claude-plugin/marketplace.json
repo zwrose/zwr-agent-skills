@@ -10,6 +10,11 @@
       "name": "review-crew",
       "source": "./plugins/review-crew",
       "description": "Multi-agent code, plan, and tech-debt review, calibrated per-project."
+    },
+    {
+      "name": "test-pilot",
+      "source": "./plugins/test-pilot",
+      "description": "Seeded manual test plans on PRs plus autonomous browser execution before human spot-check."
     }
   ]
 }
